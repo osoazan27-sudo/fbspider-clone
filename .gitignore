@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# build output (Pages is built by CI; local dist not tracked)
+dist/
+web/dist/
+*.tsbuildinfo
+
+# backend runtime data
+server/data.sqlite
+server/data.sqlite-journal
+server/data.sqlite-*
+
+# secrets / private artifacts — never publish
+extension.pem
+extension.crx
+.env
+.env.*
+*.pem
+
+# reverse-engineering artifacts (contain a captured session + screenshots)
+_recon/
+
+# logs / os cruft
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db

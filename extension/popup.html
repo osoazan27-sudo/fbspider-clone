@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    body { width: 320px; margin: 0; font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif; font-size: 13px; color: #1d2129; }
+    header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: #165dff; color: #fff; }
+    header img { width: 22px; height: 22px; background: #fff; border-radius: 4px; padding: 2px; }
+    header b { font-size: 15px; }
+    .body { padding: 14px; }
+    .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+    .row span:first-child { color: #86909c; }
+    .ok { color: #00b42a; font-weight: 600; }
+    .bad { color: #f53f3f; font-weight: 600; }
+    button { width: 100%; margin-top: 12px; padding: 9px; border: 0; border-radius: 6px; background: #165dff; color: #fff; font-size: 14px; cursor: pointer; }
+    button.sec { background: #f2f3f5; color: #1d2129; margin-top: 8px; }
+    .hint { color: #86909c; font-size: 12px; margin-top: 10px; line-height: 1.6; }
+    .sources { font-size: 11px; color: #86909c; margin-top: 8px; max-height: 90px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <header><img src="icons/icon128.png" /><b>fbspider bridge</b></header>
+  <div class="body">
+    <div class="row"><span>Facebook 登录</span><span id="user" class="bad">未检测</span></div>
+    <div class="row"><span>fb_dtsg</span><span id="dtsg" class="bad">—</span></div>
+    <div class="row"><span>access token</span><span id="token" class="bad">—</span></div>
+    <div class="row"><span>更新时间</span><span id="updated">—</span></div>
+    <button id="refresh">刷新 Facebook 会话</button>
+    <button id="openfb" class="sec">打开 Facebook 登录</button>
+    <div class="sources" id="sources"></div>
+    <div class="hint">用于管理你自己的 Facebook 账户。请先在本浏览器登录 Facebook，再点“刷新会话”。会话令牌仅保存在本机扩展存储，不上传任何服务器。</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

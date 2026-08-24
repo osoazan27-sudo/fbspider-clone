@@ -1,0 +1,7 @@
+{
+  "name": "fbspider-bridge-extension",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MV3 extension that bridges the fbspider-clone web app to the user's Facebook session. Chrome ignores this file; it only lets Node import background.js as ESM for tests."
+}
