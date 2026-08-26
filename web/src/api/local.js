@@ -112,7 +112,21 @@ export const moduleList = (name, params = '') => {
   if (name === 'dataManager') { const kind = (params.match(/kind=(\w+)/) || [])[1] || 'acc';
     return ok(kind === 'bm' ? gen.genBMs(uid()) : kind === 'page' ? gen.genPages(uid()) : gen.genAdAccounts(uid())); }
   if (name === 'library') { const kw = decodeURIComponent((params.match(/keyword=([^&]*)/) || [])[1] || ''); return ok(gen.genLibrary(uid(), kw)); }
-  if (name === 'adsManager') return ok(gen.genAdAccounts(uid(), 8).map((a) => ({ id: a.id, name: a.name, currency: a.currency, timezone: a.timezone, owner_role: a.owner_role, account_type: a.account_type, business_name: a.business_name, spend: a.amount_spent, status: a.status })));
+  if (name === 'adsManager') return ok(gen.genAdAccounts(uid(), 8).map((a) => {
+    // derive plausible delivery metrics from spend so demo mode fills the same
+    // columns live mode does (impressions / clicks / cpc / ctr)
+    const spend = parseFloat(a.amount_spent) || 0;
+    const cpc = Math.max(0.05, (spend % 3) + 0.15);
+    const clicks = Math.round(spend / cpc);
+    const impressions = clicks * (40 + Math.round((spend % 37)));
+    return {
+      id: a.id, name: a.name, currency: a.currency, timezone: a.timezone,
+      owner_role: a.owner_role, account_type: a.account_type, business_name: a.business_name,
+      spend: a.amount_spent, status: a.status,
+      impressions: impressions.toLocaleString('en-US'), clicks: String(clicks),
+      cpc: cpc.toFixed(3), ctr: impressions ? ((clicks / impressions) * 100).toFixed(2) + '%' : '0.00%',
+    };
+  }));
   return ok((GEN[name] ? GEN[name]() : []).map((x) => ({ ...x, note: '', favourite: 0 })));
 };
 export const moduleAction = (b) => ok((b.targets || [{}]).map((t, i) => ({ obj_id: String(t.id || i), name: t.name || ('对象 ' + (i + 1)), status: Math.random() > 0.1 ? 1 : 0, message: Math.random() > 0.1 ? '成功' : '失败' })), '操作完成');

@@ -19,6 +19,7 @@
       <a-checkbox v-model="byDay">按天明细</a-checkbox>
       <a-checkbox v-model="realtime">实时更新</a-checkbox>
       <div class="spacer" />
+      <SourceTag :source="source" />
       <a-button v-if="tab==='report'" @click="reportVisible = true">管理汇报人员</a-button>
       <a-button @click="exportCsv">导出 CSV</a-button>
       <a-button type="primary" :loading="loading" @click="refresh"><template #icon><icon-refresh /></template>查询数据</a-button>
@@ -32,6 +33,10 @@
         <a-table-column title="状态" :width="80"><template #cell="{ record }">
           <a-badge :status="record.status===1?'success':'danger'" :text="record.status===1?'活跃':'停用'" /></template></a-table-column>
         <a-table-column title="总花费" :width="110"><template #cell="{ record }">{{ record.currency }} {{ record.spend }}</template></a-table-column>
+        <a-table-column title="展示量" :width="100" data-index="impressions" />
+        <a-table-column title="点击" :width="90" data-index="clicks" />
+        <a-table-column title="CPC" :width="90" data-index="cpc" />
+        <a-table-column title="CTR" :width="90" data-index="ctr" />
         <a-table-column title="币种" :width="80" data-index="currency" />
         <a-table-column title="账号时区" :width="150" data-index="timezone" />
         <a-table-column title="账号类型" :width="90" data-index="account_type" />
@@ -59,7 +64,11 @@
 import { ref, computed, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { moduleList } from '../../api';
+import { getAdAccountsWithInsights } from '../../api/fbBridge';
+import { useAppStore } from '../../store/app';
+import SourceTag from '../../components/SourceTag.vue';
 
+const appStore = useAppStore();
 const tab = ref('my');
 const dateRange = ref('all');
 const byDay = ref(false);
@@ -67,14 +76,28 @@ const realtime = ref(false);
 const loading = ref(false);
 const rows = ref([]);
 const reportVisible = ref(false);
+const source = ref('mock');
+
+// this page's ranges -> Facebook's date_preset values
+const PRESETS = {
+  all: 'maximum', today: 'today', yesterday: 'yesterday',
+  '3d': 'last_3d', '7d': 'last_7d', '30d': 'last_30d',
+  week: 'this_week_mon_today', month: 'this_month',
+};
 
 const totalSpend = computed(() => rows.value.reduce((s, r) => s + parseFloat(r.spend || 0), 0).toFixed(2));
 
 async function refresh() {
   loading.value = true;
   try {
+    if (appStore.isLive) {
+      const r = await getAdAccountsWithInsights(PRESETS[dateRange.value] || 'maximum');
+      if (r && r.success && Array.isArray(r.rows)) { rows.value = r.rows; source.value = 'live'; return; }
+      Message.warning('实时获取失败：' + ((r && (r.info || r.error)) || '未知错误') + '（已回退演示数据）');
+    }
     const r = await moduleList('adsManager');
     if (r.status === 1) rows.value = r.data;
+    source.value = 'mock';
   } finally { loading.value = false; }
 }
 function exportCsv() {

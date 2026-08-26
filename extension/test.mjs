@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import {
   stripFbPrefix, parseFbResponse, computeJazoest, fillPlaceholders,
   extractSessionFromHtml, GraphAPI, normalizeAdAccount,
+  normalizePixel, normalizeAdPost, normalizeAdAccountInsights,
 } from './lib/fb.js';
 
 let pass = 0;
@@ -95,6 +96,91 @@ t('normalizeAdAccount marks disabled', () => {
   const row = normalizeAdAccount({ account_id: '1', account_status: 2, disable_reason: 2 });
   assert.equal(row.status, 2);
   assert.equal(row.account_status_label, '已停用');
+});
+
+// --- new live-data builders + normalizers ---
+t('adAccountsWithInsights nests the insights edge with a preset', () => {
+  const u = GraphAPI.adAccountsWithInsights('last_7d');
+  assert.ok(u.includes('me/adaccounts'));
+  assert.ok(decodeURIComponent(u).includes('insights.date_preset(last_7d){spend,impressions,clicks,cpc,ctr,account_currency}'));
+  assert.ok(u.includes('access_token=@token@'));
+});
+t('adPosts requests the creative object story', () => {
+  const u = GraphAPI.adPosts('123');
+  assert.ok(u.includes('act_123/ads'));
+  assert.ok(decodeURIComponent(u).includes('effective_object_story_id'));
+});
+t('adAccountPixels targets the account edge', () => {
+  assert.ok(GraphAPI.adAccountPixels('55').includes('act_55/adspixels'));
+});
+
+t('normalizePixel keeps the real name + id and derives activity', () => {
+  const recent = new Date(Date.now() - 2 * 864e5).toISOString();
+  const p = normalizePixel(
+    { id: '777', name: 'My Pixel', last_fired_time: recent, is_created_by_business: true,
+      owner_business: { id: 'b1', name: 'Biz One' } },
+    { id: 'b1', name: 'Biz One' });
+  assert.equal(p.id, '777');
+  assert.equal(p.name, 'My Pixel');
+  assert.equal(p.business_name, 'Biz One');
+  assert.equal(p.is_active, true);
+  assert.equal(p.active_label, '活跃');
+  assert.equal(p.type, 'BM创建');
+});
+t('normalizePixel marks stale pixels inactive and unnamed ones', () => {
+  const old = new Date(Date.now() - 60 * 864e5).toISOString();
+  const p = normalizePixel({ id: '1', last_fired_time: old });
+  assert.equal(p.is_active, false);
+  assert.equal(p.active_label, '不活跃');
+  assert.equal(p.name, '(未命名像素)');
+  const never = normalizePixel({ id: '2' });
+  assert.equal(never.active_label, '未触发');
+  assert.equal(never.last_active, '—');
+});
+
+t('normalizeAdPost extracts the post id, page id and real page name', () => {
+  const row = normalizeAdPost(
+    { id: 'ad1', name: 'Summer Sale', effective_status: 'ACTIVE', created_time: '2026-05-02T10:00:00+0000',
+      creative: { effective_object_story_id: '1122_3344', title: 'T', body: 'B' } },
+    { account_id: '900', name: 'Main Acc' },
+    { '1122': 'My Real Page' });
+  assert.equal(row.post_id, '1122_3344');
+  assert.equal(row.page_id, '1122');
+  assert.equal(row.page_name, 'My Real Page');
+  assert.equal(row.title, 'Summer Sale');
+  assert.equal(row.manage_account, 'Main Acc');
+  assert.equal(row.created_time, '2026-05-02');
+  assert.equal(row.url, 'https://www.facebook.com/1122/posts/3344');
+  // table expects monitor-state strings, not delivery state
+  assert.equal(row.status, '未监控');
+  assert.equal(row.delivery_status, 'ACTIVE');
+});
+t('normalizeAdPost falls back when there is no story id', () => {
+  const row = normalizeAdPost({ id: 'ad9', creative: {} }, {}, {});
+  assert.equal(row.post_id, 'ad9');
+  assert.equal(row.page_id, '');
+  assert.equal(row.page_name, '—');
+  assert.equal(row.url, '');
+});
+
+t('normalizeAdAccountInsights prefers insights spend over amount_spent', () => {
+  const row = normalizeAdAccountInsights({
+    account_id: '42', name: 'Acc', account_status: 1, currency: 'USD', amount_spent: '99999',
+    insights: { data: [{ spend: '123.4', impressions: 5000, clicks: 250, cpc: '0.4936', ctr: '5', account_currency: 'HKD' }] },
+  });
+  assert.equal(row.spend, '123.40');
+  assert.equal(row.currency, 'HKD');
+  assert.equal(row.impressions, '5000');
+  assert.equal(row.clicks, '250');
+  assert.equal(row.cpc, '0.494');
+  assert.equal(row.ctr, '5.00%');
+});
+t('normalizeAdAccountInsights falls back to amount_spent when no insights', () => {
+  const row = normalizeAdAccountInsights({ account_id: '7', account_status: 2, currency: 'USD', amount_spent: '15050' });
+  assert.equal(row.spend, '150.50');
+  assert.equal(row.impressions, '0');
+  assert.equal(row.ctr, '0.00%');
+  assert.equal(row.status, 2);
 });
 
 console.log(`\n${pass} tests passed.`);

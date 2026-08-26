@@ -27,6 +27,7 @@
       <a-input v-if="filterMode!=='all'" v-model="filterValue" :placeholder="filterMode==='acc' ? '输入账号ID' : '输入BM ID'" style="width:180px" />
       <a-checkbox v-model="slow">慢速加载（推荐）</a-checkbox>
       <div class="spacer" />
+      <SourceTag :source="source" />
       <UsageBar :module-id="1" ref="usage" />
       <a-button type="primary" :loading="loading" @click="refresh"><template #icon><icon-refresh /></template>更新</a-button>
     </div>
@@ -161,6 +162,7 @@ import { Message } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
 import { getAdAccounts, renameAdAccount } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
+import SourceTag from '../../components/SourceTag.vue';
 import ActionProgress from '../../components/ActionProgress.vue';
 
 const {

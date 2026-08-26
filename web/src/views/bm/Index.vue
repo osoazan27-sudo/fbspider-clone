@@ -15,6 +15,7 @@
       </a-select>
       <a-checkbox v-model="slow">慢速加载（推荐）</a-checkbox>
       <div class="spacer" />
+      <SourceTag :source="source" />
       <UsageBar :module-id="7" ref="usage" />
       <a-button type="primary" :loading="loading" @click="refresh"><template #icon><icon-refresh /></template>更新</a-button>
     </div>
@@ -73,9 +74,10 @@ import { Message } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
 import { getBusinesses } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
+import SourceTag from '../../components/SourceTag.vue';
 import ActionProgress from '../../components/ActionProgress.vue';
 
-const { loading, keyword, selectedKeys, selectedRows, filtered, running, progress, load, saveNote, toggleFav, runAction } = useModule('bm', 7, {
+const { loading, keyword, selectedKeys, selectedRows, filtered, running, progress, load, saveNote, toggleFav, runAction, source } = useModule('bm', 7, {
   liveLoad: async () => {
     const r = await getBusinesses();
     if (r && r.success && r.data && Array.isArray(r.data.data)) {

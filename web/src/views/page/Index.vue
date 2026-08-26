@@ -19,6 +19,7 @@
       </a-radio-group>
       <a-checkbox v-model="slow">慢速加载（推荐）</a-checkbox>
       <div class="spacer" />
+      <SourceTag :source="source" />
       <UsageBar :module-id="3" ref="usage" />
       <a-button type="primary" :loading="loading" @click="refresh"><template #icon><icon-refresh /></template>刷新</a-button>
     </div>
@@ -79,9 +80,10 @@ import { Message } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
 import { getPages } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
+import SourceTag from '../../components/SourceTag.vue';
 import ActionProgress from '../../components/ActionProgress.vue';
 
-const { loading, keyword, selectedKeys, selectedRows, filtered, running, progress, load, saveNote, toggleFav, runAction } = useModule('page', 3, {
+const { loading, keyword, selectedKeys, selectedRows, filtered, running, progress, load, saveNote, toggleFav, runAction, source } = useModule('page', 3, {
   liveLoad: async () => {
     const r = await getPages();
     if (r && r.success && r.data && Array.isArray(r.data.data)) {

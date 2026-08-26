@@ -61,4 +61,9 @@ export const getPixels = (businessId) => fbOp('getPixels', { businessId });
 export const getInsights = (actId, preset) => fbOp('getInsights', { actId, preset });
 export const renameAdAccount = (actId, name) => fbOp('renameAdAccount', { actId, name });
 
+// These sweep several endpoints, so they get a longer ceiling than the 40s default.
+export const getAllPixels = (params = {}) => rpc('FB_OP', { op: 'getAllPixels', params }, 180000);
+export const getAdPosts = (params = {}) => rpc('FB_OP', { op: 'getAdPosts', params }, 180000);
+export const getAdAccountsWithInsights = (preset) => rpc('FB_OP', { op: 'getAdAccountsWithInsights', params: { preset } }, 90000);
+
 export function bridgeReady() { return ready; }

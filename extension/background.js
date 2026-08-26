@@ -6,6 +6,7 @@
 import {
   parseFbResponse, fillPlaceholders, extractSessionFromHtml,
   computeJazoest, GraphAPI, normalizeAdAccount,
+  normalizePixel, normalizeAdPost, normalizeAdAccountInsights,
 } from './lib/fb.js';
 
 const SESSION_KEY = 'fbSession';
@@ -128,6 +129,84 @@ async function highLevel(op, params = {}) {
     case 'getPages': return executeScript({ url: GraphAPI.pages() });
     case 'getPixels': return executeScript({ url: GraphAPI.pixels(params.businessId) });
     case 'getInsights': return executeScript({ url: GraphAPI.insights(params.actId, params.preset) });
+
+    // Ad accounts with spend rolled in — a single request, so the data page can
+    // show real numbers without N per-account insights calls.
+    case 'getAdAccountsWithInsights': {
+      const r = await executeScript({ url: GraphAPI.adAccountsWithInsights(params.preset || 'maximum') });
+      if (r.success && r.data && Array.isArray(r.data.data)) r.rows = r.data.data.map(normalizeAdAccountInsights);
+      return r;
+    }
+
+    // Every pixel the user can see: walk their businesses, then (optionally)
+    // their ad accounts to catch pixels that aren't under any business.
+    case 'getAllPixels': {
+      const seen = new Map();
+      const errors = [];
+      const biz = await executeScript({ url: GraphAPI.businesses() });
+      const bizList = (biz.success && biz.data && biz.data.data) || [];
+      for (const b of bizList) {
+        const r = await executeScript({ url: GraphAPI.pixels(b.id) });
+        if (r.success && r.data && Array.isArray(r.data.data)) {
+          for (const p of r.data.data) if (!seen.has(p.id)) seen.set(p.id, normalizePixel(p, b));
+        } else if (r.data && r.data.error) errors.push(b.name + ': ' + r.data.error.message);
+      }
+      // also sweep ad accounts (capped — these are one request each)
+      const cap = params.accountCap == null ? 25 : params.accountCap;
+      let scanned = 0, total = 0;
+      if (params.includeAccounts !== false) {
+        const acc = await executeScript({ url: GraphAPI.adAccounts() });
+        const accList = (acc.success && acc.data && acc.data.data) || [];
+        total = accList.length;
+        for (const a of accList.slice(0, cap)) {
+          scanned++;
+          const r = await executeScript({ url: GraphAPI.adAccountPixels(a.account_id) });
+          if (r.success && r.data && Array.isArray(r.data.data)) {
+            for (const p of r.data.data) if (!seen.has(p.id)) seen.set(p.id, normalizePixel(p, { id: a.account_id, name: a.name }));
+          }
+        }
+      }
+      return {
+        success: true,
+        rows: [...seen.values()],
+        data: { data: [...seen.values()] },
+        meta: { businesses: bizList.length, accountsScanned: scanned, accountsTotal: total, errors },
+      };
+    }
+
+    // Real ad posts (the object story behind each ad) across the user's accounts.
+    case 'getAdPosts': {
+      const cap = params.accountCap == null ? 10 : params.accountCap;
+      const acc = await executeScript({ url: GraphAPI.adAccounts() });
+      if (!acc.success) return acc;
+      const accList = (acc.data && acc.data.data) || [];
+      // prefer active accounts; they're the ones with live posts
+      const ordered = [...accList].sort((x, y) => (x.account_status === 1 ? -1 : 1) - (y.account_status === 1 ? -1 : 1));
+      const picked = ordered.slice(0, cap);
+      const rows = [];
+      const errors = [];
+      // resolve real page names once so posts show a name, not a bare page id
+      const pageNames = {};
+      const pg = await executeScript({ url: GraphAPI.pages() });
+      if (pg.success && pg.data && Array.isArray(pg.data.data)) {
+        for (const p of pg.data.data) pageNames[p.id] = p.name;
+      }
+      for (const a of picked) {
+        const r = await executeScript({ url: GraphAPI.adPosts(a.account_id) });
+        if (r.success && r.data && Array.isArray(r.data.data)) {
+          for (const ad of r.data.data) rows.push(normalizeAdPost(ad, a, pageNames));
+        } else if (r.data && r.data.error) errors.push(a.name + ': ' + r.data.error.message);
+      }
+      // de-dupe by the underlying post, keeping the first ad that referenced it
+      const seen = new Map();
+      for (const row of rows) { const k = row.post_id || row.id; if (!seen.has(k)) seen.set(k, row); }
+      return {
+        success: true,
+        rows: [...seen.values()],
+        data: { data: [...seen.values()] },
+        meta: { accountsScanned: picked.length, accountsTotal: accList.length, ads: rows.length, errors },
+      };
+    }
     case 'renameAdAccount': return executeScript({ url: GraphAPI.renameAdAccount(params.actId, params.name), options: { method: 'POST' } });
     default: return { success: false, error: 'UNKNOWN_OP', info: op };
   }

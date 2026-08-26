@@ -9,8 +9,19 @@
     <div class="page-toolbar">
       <a-input-search v-model="keyword" placeholder="请输入url搜索..." style="width:240px" allow-clear />
       <div class="spacer" />
+      <SourceTag :source="source" />
       <UsageBar :module-id="5" ref="usage" />
       <a-button type="primary" :loading="loading" @click="refresh"><template #icon><icon-refresh /></template>刷新</a-button>
+    </div>
+
+    <div v-if="source==='live' && liveMeta" style="margin:-4px 0 10px; font-size:12px; color:var(--color-text-3)">
+      实时扫描：广告账号 {{ liveMeta.accountsScanned }}/{{ liveMeta.accountsTotal }} · 广告 {{ liveMeta.ads }} 条
+      <a-tag v-if="liveMeta.accountsScanned < liveMeta.accountsTotal" color="orange" size="small">
+        已达上限，剩余 {{ liveMeta.accountsTotal - liveMeta.accountsScanned }} 个未扫描
+      </a-tag>
+      <a-tooltip v-if="liveMeta.errors && liveMeta.errors.length" :content="liveMeta.errors.join('\n')">
+        <a-tag color="red" size="small">{{ liveMeta.errors.length }} 个账号报错</a-tag>
+      </a-tooltip>
     </div>
 
     <a-table row-key="id" :data="filtered" :loading="loading" :pagination="{ pageSize:10, showTotal:true }" :scroll="{ x: 1300 }" size="small">
@@ -74,9 +85,22 @@
 import { ref, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
+import { getAdPosts } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
+import SourceTag from '../../components/SourceTag.vue';
 
-const { loading, keyword, filtered, rows, load } = useModule('adcomment', 5);
+const { loading, keyword, filtered, rows, load, source } = useModule('adcomment', 5, {
+  // live: real ad posts (object stories) across the user's ad accounts
+  liveLoad: async () => {
+    const r = await getAdPosts();
+    if (r && r.success && Array.isArray(r.rows)) {
+      liveMeta.value = r.meta || null;
+      return { ok: true, rows: r.rows };
+    }
+    return { ok: false, info: (r && (r.info || r.error)) || '未知错误' };
+  },
+});
+const liveMeta = ref(null);
 const usage = ref();
 const addVisible = ref(false); const globalVisible = ref(false); const blackVisible = ref(false); const singleVisible = ref(false);
 const detected = ref(false);
