@@ -27,3 +27,4 @@ _recon/
 npm-debug.log*
 .DS_Store
 Thumbs.db
+dist-upload/

@@ -27,6 +27,9 @@
         "http://localhost/*",
         "http://127.0.0.1/*",
         "https://*.github.io/*",
+        "https://*.pages.dev/*",
+        "https://*.netlify.app/*",
+        "https://*.vercel.app/*",
         "https://new.fbspider.com/*",
         "https://go.fbspider.com/*"
       ],
