@@ -4,6 +4,7 @@ import {
   stripFbPrefix, parseFbResponse, computeJazoest, fillPlaceholders,
   extractSessionFromHtml, GraphAPI, normalizeAdAccount,
   normalizePixel, normalizeAdPost, normalizeAdAccountInsights,
+  describeFbError, isWriteOk,
 } from './lib/fb.js';
 
 let pass = 0;
@@ -181,6 +182,42 @@ t('normalizeAdAccountInsights falls back to amount_spent when no insights', () =
   assert.equal(row.impressions, '0');
   assert.equal(row.ctr, '0.00%');
   assert.equal(row.status, 2);
+});
+
+// --- write builders + result interpretation ---
+t('write URL builders target the right edges', () => {
+  assert.ok(GraphAPI.businessUsers('B1').includes('/B1/business_users'));
+  assert.ok(GraphAPI.deleteBusinessUser('BU9').includes('/BU9?'));
+  assert.ok(GraphAPI.pixelShareToBusiness('PX', 'B2').includes('/PX/agencies?business=B2'));
+  assert.ok(GraphAPI.pixelUnshareFromBusiness('PX', 'B2').includes('/PX/agencies?business=B2'));
+  assert.ok(GraphAPI.pixelSharedAgencies('PX').includes('/PX/agencies?fields='));
+});
+t('pixel-to-account share strips an act_ prefix', () => {
+  assert.ok(GraphAPI.pixelShareToAdAccount('PX', 'act_123').includes('account_id=123'));
+  assert.ok(GraphAPI.pixelShareToAdAccount('PX', '456').includes('account_id=456'));
+});
+
+t('isWriteOk accepts real successes', () => {
+  assert.equal(isWriteOk({ success: true, data: { success: true } }), true);
+  assert.equal(isWriteOk({ success: true, data: { id: '123' } }), true);
+  assert.equal(isWriteOk({ success: true, data: {} }), true);        // empty 200 body
+});
+t('isWriteOk rejects a Graph error body even on HTTP success', () => {
+  // the important one: FB returns 200 with an error object
+  assert.equal(isWriteOk({ success: true, data: { error: { message: 'nope', code: 200 } } }), false);
+  assert.equal(isWriteOk({ success: false, data: { success: true } }), false);
+  assert.equal(isWriteOk({ success: true, data: null }), false);
+  assert.equal(isWriteOk(null), false);
+});
+t('describeFbError surfaces what Facebook actually said', () => {
+  assert.equal(
+    describeFbError({ data: { error: { message: 'Permissions error', code: 200, error_subcode: 1349004 } } }),
+    'Permissions error · code 200/1349004');
+  // the user-facing message wins when present
+  assert.equal(
+    describeFbError({ data: { error: { message: 'x', error_user_msg: '你没有权限', code: 10 } } }),
+    '你没有权限 · code 10');
+  assert.equal(describeFbError(null), '无响应');
 });
 
 console.log(`\n${pass} tests passed.`);

@@ -7,6 +7,7 @@ import {
   parseFbResponse, fillPlaceholders, extractSessionFromHtml,
   computeJazoest, GraphAPI, normalizeAdAccount,
   normalizePixel, normalizeAdPost, normalizeAdAccountInsights,
+  describeFbError, isWriteOk,
 } from './lib/fb.js';
 
 const SESSION_KEY = 'fbSession';
@@ -208,6 +209,70 @@ async function highLevel(op, params = {}) {
       };
     }
     case 'renameAdAccount': return executeScript({ url: GraphAPI.renameAdAccount(params.actId, params.name), options: { method: 'POST' } });
+
+    // ---- real writes ----
+    // Leave a Business Manager: find your own business_user node, then delete it.
+    case 'removeSelfFromBusiness': {
+      const businessId = params.businessId;
+      if (!businessId) return { success: false, info: '缺少 BM ID' };
+      const session = await getSession();
+      const me = String(session.user || '');
+      if (!me) return { success: false, info: '未获取到当前 Facebook 用户，请先刷新会话' };
+      const list = await executeScript({ url: GraphAPI.businessUsers(businessId) });
+      if (!list.success || !list.data || !Array.isArray(list.data.data)) {
+        return { success: false, info: '读取 BM 成员失败：' + describeFbError(list) };
+      }
+      const mine = list.data.data.find((u) => String(u.user && u.user.id) === me);
+      if (!mine) return { success: false, info: '你不是该 BM 的成员，或无权限查看成员列表' };
+      const del = await executeScript({ url: GraphAPI.deleteBusinessUser(mine.id), options: { method: 'DELETE' } });
+      return isWriteOk(del)
+        ? { success: true, data: del.data, info: '已移出 BM' }
+        : { success: false, info: describeFbError(del) };
+    }
+
+    // Share / unshare a pixel with another business (BM -> BM).
+    case 'sharePixelToBusiness': {
+      const { pixelId, businessId } = params;
+      if (!pixelId || !businessId) return { success: false, info: '缺少像素 ID 或目标 BM ID' };
+      const r = await executeScript({ url: GraphAPI.pixelShareToBusiness(pixelId, businessId), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已分享' } : { success: false, info: describeFbError(r) };
+    }
+    case 'unsharePixelFromBusiness': {
+      const { pixelId, businessId } = params;
+      if (!pixelId || !businessId) return { success: false, info: '缺少像素 ID 或目标 BM ID' };
+      const r = await executeScript({ url: GraphAPI.pixelUnshareFromBusiness(pixelId, businessId), options: { method: 'DELETE' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已取消分享' } : { success: false, info: describeFbError(r) };
+    }
+
+    // Assign / unassign a pixel to one of your ad accounts.
+    case 'sharePixelToAdAccount': {
+      const { pixelId, accountId } = params;
+      if (!pixelId || !accountId) return { success: false, info: '缺少像素 ID 或广告账号 ID' };
+      const r = await executeScript({ url: GraphAPI.pixelShareToAdAccount(pixelId, accountId), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已分配' } : { success: false, info: describeFbError(r) };
+    }
+    case 'unsharePixelFromAdAccount': {
+      const { pixelId, accountId } = params;
+      if (!pixelId || !accountId) return { success: false, info: '缺少像素 ID 或广告账号 ID' };
+      const r = await executeScript({ url: GraphAPI.pixelUnshareFromAdAccount(pixelId, accountId), options: { method: 'DELETE' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已取消分配' } : { success: false, info: describeFbError(r) };
+    }
+
+    // Who is this pixel currently shared with?
+    case 'getPixelShares': {
+      const { pixelId } = params;
+      if (!pixelId) return { success: false, info: '缺少像素 ID' };
+      const [ag, acc] = await Promise.all([
+        executeScript({ url: GraphAPI.pixelSharedAgencies(pixelId) }),
+        executeScript({ url: GraphAPI.pixelSharedAccounts(pixelId) }),
+      ]);
+      return {
+        success: true,
+        businesses: (ag.success && ag.data && ag.data.data) || [],
+        accounts: (acc.success && acc.data && acc.data.data) || [],
+        info: ag.success ? '' : describeFbError(ag),
+      };
+    }
     default: return { success: false, error: 'UNKNOWN_OP', info: op };
   }
 }

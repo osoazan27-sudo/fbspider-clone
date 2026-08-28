@@ -138,7 +138,58 @@ export const GraphAPI = {
   // write example (reversible): rename an ad account you own
   renameAdAccount: (actId, name) =>
     `https://graph.facebook.com/${GV}/act_${actId}?name=${encodeURIComponent(name)}&access_token=@token@`,
+
+  // ---- writes ----
+  // people in a business (used to find your own business_user id)
+  businessUsers: (businessId) =>
+    `https://graph.facebook.com/${GV}/${businessId}/business_users?fields=` +
+    encodeURIComponent('id,name,role,user{id}') + '&limit=500&access_token=@token@',
+  // removes that person from the business (DELETE on the business_user node)
+  deleteBusinessUser: (businessUserId) =>
+    `https://graph.facebook.com/${GV}/${businessUserId}?access_token=@token@`,
+
+  // share a pixel with another business (BM -> BM), and the reverse
+  pixelShareToBusiness: (pixelId, businessId) =>
+    `https://graph.facebook.com/${GV}/${pixelId}/agencies?business=${encodeURIComponent(businessId)}&access_token=@token@`,
+  pixelUnshareFromBusiness: (pixelId, businessId) =>
+    `https://graph.facebook.com/${GV}/${pixelId}/agencies?business=${encodeURIComponent(businessId)}&access_token=@token@`,
+  // assign a pixel to one of your ad accounts
+  pixelShareToAdAccount: (pixelId, accountId) =>
+    `https://graph.facebook.com/${GV}/${pixelId}/shared_accounts?account_id=${encodeURIComponent(String(accountId).replace(/^act_/, ''))}&access_token=@token@`,
+  pixelUnshareFromAdAccount: (pixelId, accountId) =>
+    `https://graph.facebook.com/${GV}/${pixelId}/shared_accounts?account_id=${encodeURIComponent(String(accountId).replace(/^act_/, ''))}&access_token=@token@`,
+  // who a pixel is currently shared with
+  pixelSharedAgencies: (pixelId) =>
+    `https://graph.facebook.com/${GV}/${pixelId}/agencies?fields=` +
+    encodeURIComponent('id,name') + '&limit=200&access_token=@token@',
+  pixelSharedAccounts: (pixelId) =>
+    `https://graph.facebook.com/${GV}/${pixelId}/shared_accounts?fields=` +
+    encodeURIComponent('id,name,account_id') + '&limit=200&access_token=@token@',
 };
+
+// Pull a human-readable reason out of a Graph API error body so failures say
+// what Facebook actually objected to instead of a generic "失败".
+export function describeFbError(resp) {
+  if (!resp) return '无响应';
+  if (resp.error && typeof resp.error === 'string') return resp.error;
+  const e = (resp.data && resp.data.error) || resp.error;
+  if (!e) return resp.info || '未知错误';
+  const parts = [];
+  if (e.error_user_msg) parts.push(e.error_user_msg);
+  else if (e.message) parts.push(e.message);
+  if (e.code != null) parts.push('code ' + e.code + (e.error_subcode ? '/' + e.error_subcode : ''));
+  return parts.join(' · ') || '未知错误';
+}
+
+// A Graph write succeeded if FB echoed success:true (or returned an id) and
+// there is no error object. Never treat an error body as success.
+export function isWriteOk(resp) {
+  if (!resp || !resp.success) return false;
+  const d = resp.data;
+  if (!d || typeof d !== 'object') return false;
+  if (d.error) return false;
+  return d.success === true || !!d.id || Object.keys(d).length === 0;
+}
 
 // Map a Graph adspixel row to the pixel table's column shape. `owner` is the
 // business (or ad account) the pixel was discovered under.

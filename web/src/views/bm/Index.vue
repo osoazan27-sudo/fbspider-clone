@@ -4,7 +4,7 @@
       <a-button type="primary" @click="act('隐藏管理员')">隐藏管理员</a-button>
       <a-button @click="inviteVisible = true">邀请人员</a-button>
       <a-button @click="act('BM推送')">BM推送</a-button>
-      <a-button status="danger" @click="act('移出BM')">移出BM</a-button>
+      <a-button status="danger" @click="doRemove">移出BM</a-button>
     </a-space>
 
     <div class="page-toolbar">
@@ -70,8 +70,9 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { Message } from '@arco-design/web-vue';
+import { Message, Modal } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
+import { useAppStore } from '../../store/app';
 import { getBusinesses } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
 import SourceTag from '../../components/SourceTag.vue';
@@ -94,9 +95,26 @@ const { loading, keyword, selectedKeys, selectedRows, filtered, running, progres
 });
 const usage = ref(); const slow = ref(true); const filterMode = ref('all'); const curAction = ref('');
 const inviteVisible = ref(false); const inviteForm = ref({ email: '', role: 'admin' });
+const appStore = useAppStore();
 
 async function refresh() { await load(); usage.value?.reload(); }
-async function act(label) { curAction.value = label; await runAction(label, selectedRows.value); }
+async function act(label, ctx) { curAction.value = label; await runAction(label, selectedRows.value, ctx); }
+
+// Leaving a BM is not reversible from here — you'd need to be re-invited.
+function doRemove() {
+  if (!selectedRows.value.length) return Message.warning('请先选择对象');
+  const names = selectedRows.value.map((r) => r.name).join('、');
+  Modal.confirm({
+    title: '确认移出这些 BM？',
+    content: appStore.isLive
+      ? `将把你自己从 ${selectedRows.value.length} 个 BM 中移除：${names}。这会真实生效，移除后需要对方重新邀请才能加回。`
+      : `演示模式：不会真的操作 Facebook。将模拟移出 ${selectedRows.value.length} 个 BM。`,
+    okText: '确认移出',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: () => act('移出BM'),
+  });
+}
 function doInvite() { if (!inviteForm.value.email) return Message.warning('请输入邮箱'); if (!inviteForm.value.role) return Message.warning('请选择角色'); inviteVisible.value = false; act('邀请人员'); }
 onMounted(refresh);
 </script>

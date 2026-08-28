@@ -3,6 +3,7 @@ import { Message, Modal } from '@arco-design/web-vue';
 import * as api from '../api';
 import { useAppStore } from '../store/app';
 import { sortModuleRows } from '../utils/sortRows';
+import { hasRealAction, runRealAction } from '../api/fbActions';
 
 // shared plumbing for a module list page: load rows, row selection,
 // note/favourite overlay, and a simulated batch-action runner with a progress feel.
@@ -56,9 +57,40 @@ export function useModule(moduleName, moduleId, opts = {}) {
     Message.success(fav ? '已收藏' : '已取消收藏');
   }
 
-  // simulate a batch action across selected rows with per-row success/failure
-  async function runAction(label, targets) {
+  // Run a batch action across the selected rows.
+  // 实时 mode drives the user's real Facebook session; 演示 mode simulates.
+  // In 实时 mode an action with no real implementation is refused, never faked.
+  async function runAction(label, targets, ctx = {}) {
     if (!targets.length) { Message.warning('请先选择对象'); return; }
+
+    // Reads may quietly fall back to demo data, but a WRITE must never silently
+    // simulate while the UI says 实时 — that reads as "it worked" when nothing
+    // touched Facebook.
+    if (appStore.dataMode === 'live') {
+      if (!appStore.extInstalled) {
+        Message.error('当前是「实时」但没有检测到插件，操作未执行。请在 chrome://extensions 加载/刷新插件后重试。');
+        return;
+      }
+      if (!hasRealAction(moduleName, label)) {
+        Message.error(`「${label}」还没有接入真实接口，实时模式下不会执行（切到「演示」可以看流程）`);
+        return;
+      }
+      running.value = true;
+      progress.value = { done: 0, total: targets.length, results: [] };
+      try {
+        const { error, results } = await runRealAction(moduleName, label, targets, ctx, (row, done) => {
+          progress.value.done = done;
+          progress.value.results.push(row);
+        });
+        if (error) { Message.warning(error); return; }
+        const okc = results.filter((x) => x.status === 1).length;
+        const msg = `${label}：成功 ${okc} / ${results.length}`;
+        if (okc === results.length) Message.success(msg);
+        else Message.error(msg + '（展开进度查看失败原因）');
+        return results;
+      } finally { running.value = false; }
+    }
+
     running.value = true;
     progress.value = { done: 0, total: targets.length, results: [] };
     try {
@@ -71,7 +103,7 @@ export function useModule(moduleName, moduleId, opts = {}) {
         await new Promise((res) => setTimeout(res, 120));
       }
       const okc = results.filter((x) => x.status === 1).length;
-      Message.success(`${label}：成功 ${okc} / ${results.length}`);
+      Message.success(`${label}（演示）：成功 ${okc} / ${results.length}`);
       return results;
     } finally { running.value = false; }
   }
