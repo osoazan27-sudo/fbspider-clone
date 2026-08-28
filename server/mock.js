@@ -23,12 +23,14 @@ function genAdAccounts(uid, n = 12) {
     const spend = Math.floor(rnd() * 50000) / 100;
     const cap = [0, 250, 1500, 5000][Math.floor(rnd() * 4)];
     const cur = CURRENCIES[Math.floor(rnd() * CURRENCIES.length)];
+    // one draw drives both the status code and its label so they can't disagree
+    const active = rnd() > 0.2;
     out.push({
       id: 'act_' + pad(100000000000000 + Math.floor(rnd() * 8e13)),
       account_id: pad(100000000000000 + Math.floor(rnd() * 8e13)),
       name: 'Ad Account ' + (i + 1),
-      status: rnd() > 0.2 ? 1 : 2,                     // 1 active, 2 disabled
-      account_status_label: rnd() > 0.2 ? '活跃' : '已停用',
+      status: active ? 1 : 2,                          // 1 active, 2 disabled
+      account_status_label: active ? '活跃' : '已停用',
       account_type: rnd() > 0.5 ? '后付费' : '预付费',
       amount_spent: spend.toFixed(2),
       balance: (Math.floor(rnd() * 20000) / 100).toFixed(2),
@@ -84,11 +86,12 @@ function genPages(uid, n = 10) {
   const rnd = seededRand(uid * 17 + 3003);
   const out = [];
   for (let i = 0; i < n; i++) {
+    const active = rnd() > 0.2;
     out.push({
       id: pad(100000000000000 + Math.floor(rnd() * 8e13)),
       name: 'Page ' + (i + 1),
-      status: rnd() > 0.2 ? 1 : 2,
-      page_status_label: rnd() > 0.2 ? '正常' : '停用',
+      status: active ? 1 : 2,
+      page_status_label: active ? '正常' : '停用',
       create_channel: rnd() > 0.5 ? '个人公共主页' : 'BM公共主页',
       created_time: '2025-0' + (1 + Math.floor(rnd() * 8)) + '-' + (10 + Math.floor(rnd() * 18)),
       appeal_time: rnd() > 0.8 ? '2025-06-15' : '',
@@ -106,6 +109,7 @@ function genPixels(uid, n = 9) {
   const rnd = seededRand(uid * 19 + 4004);
   const out = [];
   for (let i = 0; i < n; i++) {
+    const active = rnd() > 0.3;
     out.push({
       id: pad(100000000000000 + Math.floor(rnd() * 8e13)),
       name: 'Pixel ' + (i + 1),
@@ -113,8 +117,8 @@ function genPixels(uid, n = 9) {
       business_name: 'Business ' + (1 + Math.floor(rnd() * 20)),
       owner: 'Business ' + (1 + Math.floor(rnd() * 20)),
       role: ROLES[Math.floor(rnd() * ROLES.length)],
-      is_active: rnd() > 0.3 ? 1 : 0,
-      active_label: rnd() > 0.3 ? '活跃' : '不活跃',
+      is_active: active ? 1 : 0,
+      active_label: active ? '活跃' : '不活跃',
       last_active: '2025-08-' + (10 + Math.floor(rnd() * 18)),
       share_status: rnd() > 0.5 ? '已分享' : '未分享',
       type: rnd() > 0.5 ? '事件数据集' : '传统 Pixel',

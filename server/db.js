@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS orders (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   ordernum     TEXT UNIQUE,
   uid          INTEGER NOT NULL,
+  service_id   INTEGER,           -- the exact plan bought (not just its module)
   module_id    INTEGER,
   module_name  TEXT,
   order_type   TEXT,            -- buy | renew | upgrade
@@ -153,5 +154,17 @@ CREATE TABLE IF NOT EXISTS obj_meta (
   UNIQUE(uid, module_id, obj_id)
 );
 `);
+
+// Migrations for databases created before a column existed. CREATE TABLE IF NOT
+// EXISTS won't add columns to an existing table, so add them defensively.
+for (const [table, column, decl] of [
+  ['orders', 'service_id', 'INTEGER'],
+]) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+    console.log(`[db] migrated: ${table}.${column} added`);
+  }
+}
 
 module.exports = db;

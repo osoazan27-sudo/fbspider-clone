@@ -2,6 +2,7 @@ import { ref, computed } from 'vue';
 import { Message, Modal } from '@arco-design/web-vue';
 import * as api from '../api';
 import { useAppStore } from '../store/app';
+import { sortModuleRows } from '../utils/sortRows';
 
 // shared plumbing for a module list page: load rows, row selection,
 // note/favourite overlay, and a simulated batch-action runner with a progress feel.
@@ -21,12 +22,13 @@ export function useModule(moduleName, moduleId, opts = {}) {
     try {
       if (appStore.isLive && opts.liveLoad) {
         const live = await opts.liveLoad();
-        if (live && live.ok) { rows.value = live.rows; source.value = 'live'; return; }
+        // same ordering everywhere: 主体/广告账户 -> 投放中优先 -> 时间倒序
+        if (live && live.ok) { rows.value = sortModuleRows(live.rows); source.value = 'live'; return; }
         // live failed -> surface why, then fall back to mock so the page still works
         if (live && live.info) Message.warning('实时获取失败：' + live.info + '（已回退演示数据）');
       }
       const r = await api.moduleList(moduleName, params);
-      if (r.status === 1) rows.value = Array.isArray(r.data) ? r.data : (r.data.received || r.data || []);
+      if (r.status === 1) rows.value = sortModuleRows(Array.isArray(r.data) ? r.data : (r.data.received || r.data || []));
       source.value = 'mock';
     } finally { loading.value = false; }
   }

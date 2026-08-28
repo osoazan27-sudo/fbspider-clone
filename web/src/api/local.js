@@ -46,9 +46,14 @@ export const getServiceList = () => ok(services);
 export const getMyServices = () => ok(LS.get('local_services', []));
 export const getMyOrders = () => ok(LS.get('local_orders', []), 'Success');
 export const getRecords = (u, moduleId) => {
-  const svc = services.find((s) => s.module_id === Number(moduleId) && s.level_id === 0) || { num: 10, total_num: 50 };
+  const mid = Number(moduleId);
+  // an active purchased plan sets the limits; otherwise fall back to the free tier
+  const owned = LS.get('local_services', []).find((s) => s.module_id === mid && s.end_time > now());
+  const svc = owned
+    || services.find((s) => s.module_id === mid && s.level_id === 0)
+    || { num: 10, total_num: 50 };
   const used = LS.get('local_usage_' + moduleId, 0);
-  return ok({ used, num: svc.num, total_num: svc.total_num, reset_day: 1 });
+  return ok({ used, num: svc.num, total_num: svc.total_num, reset_day: 1, plan: svc.name || '免费版' });
 };
 export const addRecord = (b) => { const k = 'local_usage_' + b.module_id; LS.set(k, LS.get(k, 0) + (b.num || 1)); return ok([], '记录成功'); };
 export const createPaymentIntent = (b) => makeOrder(b, 'stripe');
@@ -61,8 +66,10 @@ function makeOrder(b, method) {
   const pay = (parseFloat(svc.price) * months * Number(b.discount || 1)).toFixed(2);
   const ordernum = 'FBS' + Date.now() + Math.floor(Math.random() * 900 + 100);
   const orders = LS.get('local_orders', []);
-  orders.unshift({ ordernum, uid: uid(), module_id: svc.module_id, module_name: svc.module_name,
-    order_type: b.order_type || 'buy', months, currency: b.currency || 'USD', amount, pay_amount: pay,
+  // keep service_id: the plan the user actually picked, so fulfilment grants
+  // that exact tier instead of guessing from module_id
+  orders.unshift({ ordernum, uid: uid(), service_id: svc.id, module_id: svc.module_id, module_name: svc.module_name,
+    plan_name: svc.name, order_type: b.order_type || 'buy', months, currency: b.currency || 'USD', amount, pay_amount: pay,
     pay_method: method, order_status: 0, pay_status: 0, create_time: now() });
   LS.set('local_orders', orders);
   const extra = method === 'cryptomus'
@@ -70,18 +77,40 @@ function makeOrder(b, method) {
     : { client_secret: 'pi_local_' + ordernum };
   return ok({ ordernum, pay_amount: pay, currency: b.currency || 'USD', ...extra });
 }
+// Every real module the app sells (the bundle itself, module_id 0, excluded).
+export const ALL_MODULES = [...new Map(
+  services.filter((s) => s.module_id !== 0).map((s) => [s.module_id, s.module_name]),
+).entries()].map(([module_id, module_name]) => ({ module_id, module_name }));
+
 export const mockConfirm = (ordernum) => {
   const orders = LS.get('local_orders', []);
   const o = orders.find((x) => x.ordernum === ordernum);
   if (!o) return fail('订单不存在');
   o.pay_status = 1; o.order_status = 1; o.pay_time = now(); LS.set('local_orders', orders);
-  const svc = services.find((s) => s.module_id === o.module_id && s.level_id > 0) || services.find((s) => s.module_id === o.module_id);
-  const start = now(); const end = start + o.months * 30 * 86400;
-  const list = LS.get('local_services', []).filter((s) => s.module_id !== o.module_id);
-  list.push({ uid: uid(), module_id: o.module_id, module_name: o.module_name, level: svc.level, level_id: svc.level_id,
-    name: svc.name, num: svc.num, total_num: svc.total_num, months: o.months, start_time: start, end_time: end });
+
+  // grant exactly the plan that was bought
+  const svc = services.find((s) => s.id === o.service_id)
+    || services.find((s) => s.module_id === o.module_id && s.level_id > 0)
+    || services.find((s) => s.module_id === o.module_id);
+  if (!svc) return fail('服务不存在');
+
+  const start = now();
+  const end = start + o.months * 30 * 86400;
+  const entitle = (module_id, module_name) => ({
+    uid: uid(), module_id, module_name, level: svc.level, level_id: svc.level_id,
+    name: svc.name, num: svc.num, total_num: svc.total_num, months: o.months,
+    start_time: start, end_time: end, from_bundle: !!svc.all_modules,
+  });
+
+  // the all-access bundle unlocks every module at the bundle's limits
+  const targets = svc.all_modules ? ALL_MODULES : [{ module_id: o.module_id, module_name: o.module_name }];
+  const touched = new Set(targets.map((t) => t.module_id));
+  const list = LS.get('local_services', []).filter((s) => !touched.has(s.module_id));
+  for (const t of targets) list.push(entitle(t.module_id, t.module_name));
+  list.sort((a, b) => a.module_id - b.module_id);
   LS.set('local_services', list);
-  return ok({ ordernum, pay_status: 1 }, '支付成功');
+
+  return ok({ ordernum, pay_status: 1, modules: targets.length }, '支付成功');
 };
 export const promoInfo = (promo) => {
   const t = { FB10: 0.9, FB20: 0.8, VERYFB: 0.85 }; const p = String(promo).toUpperCase();

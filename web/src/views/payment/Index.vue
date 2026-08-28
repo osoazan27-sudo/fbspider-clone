@@ -10,17 +10,33 @@
     <!-- step 0: choose module + plan -->
     <div v-show="step===0">
       <a-tabs v-model:active-key="curModule" type="card-gutter">
-        <a-tab-pane v-for="m in modules" :key="String(m.module_id)" :title="m.module_name" />
+        <a-tab-pane v-for="m in modules" :key="String(m.module_id)">
+          <template #title>
+            {{ m.module_name }}
+            <a-tag v-if="m.module_id === 0" color="red" size="small" style="margin-left:6px">超值</a-tag>
+          </template>
+        </a-tab-pane>
       </a-tabs>
+
+      <a-alert v-if="String(curModule) === '0'" type="success" style="margin-bottom:16px">
+        一次开通全部 {{ realModuleCount }} 个功能，比逐个购买省下大部分费用；到期时间统一管理。
+      </a-alert>
+
       <a-row :gutter="16">
         <a-col v-for="p in plansOf(curModule)" :key="p.id" :span="6">
-          <a-card :bordered="true" :class="['plan-card', { picked: picked?.id===p.id }]" hoverable @click="picked = p" style="margin-bottom:16px">
+          <a-card :bordered="true" :class="['plan-card', { picked: picked?.id===p.id, bundle: p.all_modules }]" hoverable @click="picked = p" style="margin-bottom:16px">
             <div style="text-align:center">
               <div style="font-size:16px; font-weight:600">{{ p.name }}</div>
-              <a-tag :color="p.level==='free'?'gray':'gold'" style="margin:8px 0">{{ p.level==='free' ? '免费版' : '高级版' }}</a-tag>
+              <a-tag :color="p.level==='free' ? 'gray' : (p.all_modules ? 'red' : 'gold')" style="margin:8px 0">
+                {{ p.level==='free' ? '免费版' : (p.all_modules ? '全能版' : '高级版') }}
+              </a-tag>
               <div style="font-size:28px; font-weight:700; color: rgb(var(--primary-6))">${{ p.price }}<span style="font-size:13px; color:var(--color-text-3)">/月</span></div>
+              <div v-if="saving(p)" style="font-size:12px; color:#f53f3f; margin-top:2px">
+                单买合计 ${{ saving(p).sum }} · 省 {{ saving(p).off }}%
+              </div>
               <a-divider style="margin:12px 0" />
               <div style="font-size:13px; color:var(--color-text-2); line-height:2">
+                <div v-if="p.all_modules"><b>解锁全部 {{ realModuleCount }} 个功能</b></div>
                 <div>每个FB号列表限制：{{ p.num }}</div>
                 <div>套餐总数：{{ p.total_num }}</div>
                 <div>客服支持：{{ p.level==='free' ? '论坛支持' : '专属客服' }}</div>
@@ -102,14 +118,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onActivated } from 'vue';
 import { useRoute } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
 import { getServiceList, createPaymentIntent, cryptomus, mockConfirm, promoInfo } from '../../api';
 
 const route = useRoute();
 const services = ref([]);
-const curModule = ref('1');
+const curModule = ref('0');   // open on the all-access bundle
 const picked = ref(null);
 const step = ref(0);
 const months = ref(1);
@@ -127,6 +143,29 @@ const modules = computed(() => {
   return [...seen.values()];
 });
 function plansOf(mid) { return services.value.filter((s) => String(s.module_id) === String(mid)).sort((a, b) => a.sort - b.sort); }
+
+// real modules = everything except the bundle pseudo-module (module_id 0)
+const realModuleIds = computed(() => [...new Set(services.value.filter((s) => s.module_id !== 0).map((s) => s.module_id))]);
+const realModuleCount = computed(() => realModuleIds.value.length);
+
+// What the same tier would cost bought module-by-module. Matches on the plan
+// letter (A/B/C) and falls back to a module's top plan when that letter is
+// missing, so the comparison is against real listed prices, not a made-up one.
+function saving(p) {
+  if (!p || !p.all_modules) return null;
+  const letter = (String(p.name).match(/([A-D])$/) || [])[1];
+  if (!letter) return null;
+  let sum = 0;
+  for (const mid of realModuleIds.value) {
+    const paid = services.value.filter((s) => s.module_id === mid && s.level !== 'free').sort((a, b) => a.sort - b.sort);
+    if (!paid.length) continue;
+    const match = paid.find((s) => String(s.name).endsWith(letter)) || paid[paid.length - 1];
+    sum += parseFloat(match.price) || 0;
+  }
+  const price = parseFloat(p.price) || 0;
+  if (!sum || sum <= price) return null;
+  return { sum: sum.toFixed(2), off: Math.round((1 - price / sum) * 100) };
+}
 const total = computed(() => picked.value ? (parseFloat(picked.value.price) * months.value).toFixed(2) : '0.00');
 const payable = computed(() => picked.value ? (parseFloat(picked.value.price) * months.value * discount.value).toFixed(2) : '0.00');
 
@@ -155,14 +194,26 @@ async function confirmPay() {
 }
 function reset() { step.value = 0; picked.value = null; months.value = 1; promo.value = ''; discount.value = 1; }
 
+function syncFromRoute() {
+  if (route.query.module != null && route.query.module !== '') curModule.value = String(route.query.module);
+}
+
 onMounted(async () => {
   const r = await getServiceList();
   if (r.status === 1) services.value = r.data;
-  if (route.query.module) curModule.value = String(route.query.module);
+  syncFromRoute();
+});
+
+// Routes are kept alive, so re-entering this page would otherwise show the old
+// success screen and ignore a new ?module= coming from 用户中心's 购买 button.
+onActivated(() => {
+  if (step.value === 3) reset();
+  syncFromRoute();
 });
 </script>
 
 <style scoped>
 .plan-card { cursor: pointer; transition: all .2s; }
 .plan-card.picked { border-color: rgb(var(--primary-6)); box-shadow: 0 0 0 2px rgba(var(--primary-6), .2); }
+.plan-card.bundle { border-color: #ffd6d6; background: linear-gradient(180deg, #fff8f8 0%, var(--color-bg-2) 60%); }
 </style>

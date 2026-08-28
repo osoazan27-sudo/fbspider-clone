@@ -40,12 +40,13 @@
 import { ref, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { moduleList } from '../../api';
+import { sortModuleRows } from '../../utils/sortRows';
 
 const kw = ref(''); const country = ref('US'); const loading = ref(false); const videos = ref([]);
 
 async function search() {
   loading.value = true;
-  try { const r = await moduleList('library', `?keyword=${encodeURIComponent(kw.value)}`); if (r.status === 1) videos.value = r.data; }
+  try { const r = await moduleList('library', `?keyword=${encodeURIComponent(kw.value)}`); if (r.status === 1) videos.value = sortModuleRows(r.data); }
   finally { loading.value = false; }
 }
 function download(v) {

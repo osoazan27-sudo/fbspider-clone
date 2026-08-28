@@ -63,9 +63,9 @@ function makeOrder(uid, body) {
   const pay = (unit * months * discount).toFixed(2);
   const ordernum = 'FBS' + Date.now() + Math.floor(Math.random() * 900 + 100);
   db.prepare(`INSERT INTO orders
-    (ordernum,uid,module_id,module_name,order_type,months,currency,amount,pay_amount,pay_method,order_status,pay_status,create_time)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(ordernum, uid, svc.module_id, svc.module_name, body.order_type || 'buy', months,
+    (ordernum,uid,service_id,module_id,module_name,order_type,months,currency,amount,pay_amount,pay_method,order_status,pay_status,create_time)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(ordernum, uid, svc.id, svc.module_id, svc.module_name, body.order_type || 'buy', months,
       body.currency || 'USD', amount, pay, body.pay_method || 'stripe', 0, 0, now());
   return { ordernum, svc, months, amount, pay_amount: pay };
 }
@@ -104,20 +104,37 @@ function confirm(req, res) {
   if (!o) return res.json(fail('订单不存在'));
   if (o.pay_status === 1) return res.json(ok(o, '已支付'));
   db.prepare('UPDATE orders SET pay_status=1, order_status=1, pay_time=? WHERE ordernum=?').run(now(), ordernum);
-  const svc = db.prepare('SELECT * FROM services WHERE module_id=? AND level_id>0 ORDER BY level_id LIMIT 1').get(o.module_id)
+  // grant the exact plan that was bought; fall back for orders placed before
+  // service_id was recorded
+  const svc = (o.service_id && db.prepare('SELECT * FROM services WHERE id=?').get(o.service_id))
+    || db.prepare('SELECT * FROM services WHERE module_id=? AND level_id>0 ORDER BY level_id LIMIT 1').get(o.module_id)
     || db.prepare('SELECT * FROM services WHERE module_id=? ORDER BY sort LIMIT 1').get(o.module_id);
+  if (!svc) return res.json(fail('服务不存在'));
+
   const start = now();
   const end = start + o.months * 30 * 86400;
-  db.prepare(`INSERT INTO user_services (uid,module_id,module_name,level,level_id,name,num,total_num,months,start_time,end_time)
+
+  // module_id 0 is the all-access bundle: entitle every real module at its limits
+  const targets = o.module_id === 0
+    ? db.prepare('SELECT DISTINCT module_id, module_name FROM services WHERE module_id<>0').all()
+    : [{ module_id: o.module_id, module_name: o.module_name }];
+
+  const grant = db.prepare(`INSERT INTO user_services (uid,module_id,module_name,level,level_id,name,num,total_num,months,start_time,end_time)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(uid,module_id) DO UPDATE SET
       level=excluded.level, level_id=excluded.level_id, name=excluded.name,
       num=excluded.num, total_num=excluded.total_num,
       months=user_services.months+excluded.months,
-      end_time=MAX(user_services.end_time, ?)+excluded.months*30*86400`)
-    .run(req.uid, o.module_id, o.module_name, svc.level, svc.level_id, svc.name,
-      svc.num, svc.total_num, o.months, start, end, start);
-  return res.json(ok({ ordernum, pay_status: 1 }, '支付成功'));
+      end_time=MAX(user_services.end_time, ?)+excluded.months*30*86400`);
+  const grantAll = db.transaction((list) => {
+    for (const t of list) {
+      grant.run(req.uid, t.module_id, t.module_name, svc.level, svc.level_id, svc.name,
+        svc.num, svc.total_num, o.months, start, end, start);
+    }
+  });
+  grantAll(targets);
+
+  return res.json(ok({ ordernum, pay_status: 1, modules: targets.length }, '支付成功'));
 }
 router.get('/mockConfirm', requireAuth, confirm);
 router.post('/mockConfirm', requireAuth, confirm);

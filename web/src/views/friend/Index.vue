@@ -51,6 +51,7 @@
 import { ref, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { moduleList } from '../../api';
+import { sortModuleRows } from '../../utils/sortRows';
 
 const tab = ref('received');
 const loading = ref(false);
@@ -63,7 +64,7 @@ async function refresh() {
   loading.value = true;
   try {
     const r = await moduleList('friend');
-    if (r.status === 1) { received.value = r.data.received || []; sent.value = r.data.sent || []; }
+    if (r.status === 1) { received.value = sortModuleRows(r.data.received || []); sent.value = sortModuleRows(r.data.sent || []); }
   } finally { loading.value = false; }
 }
 function approve(record, ok) { record.status = ok ? '已同意' : '已拒绝'; Message.success(ok ? '好友添加成功' : '已拒绝申请'); }

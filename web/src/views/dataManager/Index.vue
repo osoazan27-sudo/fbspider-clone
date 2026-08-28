@@ -80,6 +80,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { moduleList, moduleAction } from '../../api';
+import { sortModuleRows } from '../../utils/sortRows';
 
 const kind = ref('acc');
 const loading = ref(false);
@@ -94,7 +95,7 @@ async function refresh() {
   loading.value = true; selectedKeys.value = [];
   try {
     const r = await moduleList('dataManager', `?kind=${kind.value}`);
-    if (r.status === 1) rows.value = r.data;
+    if (r.status === 1) rows.value = sortModuleRows(r.data);
   } finally { loading.value = false; }
 }
 async function act(label) {
