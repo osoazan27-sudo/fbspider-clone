@@ -158,6 +158,74 @@ export const GraphAPI = {
     `https://graph.facebook.com/${GV}/${pixelId}/shared_accounts?account_id=${encodeURIComponent(String(accountId).replace(/^act_/, ''))}&access_token=@token@`,
   pixelUnshareFromAdAccount: (pixelId, accountId) =>
     `https://graph.facebook.com/${GV}/${pixelId}/shared_accounts?account_id=${encodeURIComponent(String(accountId).replace(/^act_/, ''))}&access_token=@token@`,
+  // --- ad account people + limits ---
+  // grant someone access to an ad account. tasks: ANALYST | ADVERTISER | MANAGE
+  addAdAccountUser: (actId, uid, tasks) =>
+    `https://graph.facebook.com/${GV}/act_${String(actId).replace(/^act_/, '')}/assigned_users` +
+    `?user=${encodeURIComponent(uid)}&tasks=${encodeURIComponent(JSON.stringify([].concat(tasks || 'ANALYST')))}` +
+    '&access_token=@token@',
+  removeAdAccountUser: (actId, uid) =>
+    `https://graph.facebook.com/${GV}/act_${String(actId).replace(/^act_/, '')}/assigned_users` +
+    `?user=${encodeURIComponent(uid)}&access_token=@token@`,
+  // spend cap is in minor units (cents); 0 clears it
+  setAdAccountSpendCap: (actId, cents) =>
+    `https://graph.facebook.com/${GV}/act_${String(actId).replace(/^act_/, '')}` +
+    `?spend_cap=${encodeURIComponent(cents)}&access_token=@token@`,
+  // hand an ad account to a business as a client account
+  addAdAccountToBusiness: (businessId, actId) =>
+    `https://graph.facebook.com/${GV}/${businessId}/client_ad_accounts` +
+    `?adaccount_id=act_${String(actId).replace(/^act_/, '')}&access_token=@token@`,
+
+  // --- business people ---
+  inviteBusinessUser: (businessId, email, role) =>
+    `https://graph.facebook.com/${GV}/${businessId}/business_users` +
+    `?email=${encodeURIComponent(email)}&role=${encodeURIComponent(role || 'EMPLOYEE')}&access_token=@token@`,
+
+  // --- pixel people + creation ---
+  createPixel: (businessId, name) =>
+    `https://graph.facebook.com/${GV}/${businessId}/adspixels?name=${encodeURIComponent(name)}&access_token=@token@`,
+  addPixelUser: (pixelId, uid, tasks) =>
+    `https://graph.facebook.com/${GV}/${pixelId}/assigned_users` +
+    `?user=${encodeURIComponent(uid)}&tasks=${encodeURIComponent(JSON.stringify([].concat(tasks || 'ANALYZE')))}` +
+    '&access_token=@token@',
+  removePixelUser: (pixelId, uid) =>
+    `https://graph.facebook.com/${GV}/${pixelId}/assigned_users?user=${encodeURIComponent(uid)}&access_token=@token@`,
+
+  // --- pages ---
+  renamePage: (pageId, name, pageToken) =>
+    `https://graph.facebook.com/${GV}/${pageId}?name=${encodeURIComponent(name)}` +
+    `&access_token=${encodeURIComponent(pageToken || '@token@')}`,
+  setPagePublished: (pageId, published, pageToken) =>
+    `https://graph.facebook.com/${GV}/${pageId}?is_published=${published ? 'true' : 'false'}` +
+    `&access_token=${encodeURIComponent(pageToken || '@token@')}`,
+  // page moderation word list (comma separated) and visitor blocking
+  setPageBannedWords: (pageId, words, pageToken) =>
+    `https://graph.facebook.com/${GV}/${pageId}/settings` +
+    `?setting=MODERATION_LIST&value=${encodeURIComponent(words)}` +
+    `&access_token=${encodeURIComponent(pageToken || '@token@')}`,
+  blockPageUser: (pageId, userIdOrName, pageToken) =>
+    `https://graph.facebook.com/${GV}/${pageId}/blocked?user=${encodeURIComponent(userIdOrName)}` +
+    `&access_token=${encodeURIComponent(pageToken || '@token@')}`,
+  // one page's token, needed for most page-level writes
+  pageToken: (pageId) =>
+    `https://graph.facebook.com/${GV}/${pageId}?fields=access_token,name&access_token=@token@`,
+
+  // --- interests (ad targeting search) ---
+  searchInterests: (q, limit = 50) =>
+    `https://graph.facebook.com/${GV}/search?type=adinterest&q=${encodeURIComponent(q)}` +
+    `&limit=${limit}&access_token=@token@`,
+
+  // --- post comments (for the ad-comment module) ---
+  postComments: (postId, limit = 100) =>
+    `https://graph.facebook.com/${GV}/${postId}/comments?fields=` +
+    encodeURIComponent('id,message,created_time,from{id,name},is_hidden,like_count') +
+    `&filter=stream&limit=${limit}&access_token=@token@`,
+  hideComment: (commentId, hidden, pageToken) =>
+    `https://graph.facebook.com/${GV}/${commentId}?is_hidden=${hidden ? 'true' : 'false'}` +
+    `&access_token=${encodeURIComponent(pageToken || '@token@')}`,
+  deleteComment: (commentId, pageToken) =>
+    `https://graph.facebook.com/${GV}/${commentId}?access_token=${encodeURIComponent(pageToken || '@token@')}`,
+
   // who a pixel is currently shared with
   pixelSharedAgencies: (pixelId) =>
     `https://graph.facebook.com/${GV}/${pixelId}/agencies?fields=` +
@@ -250,6 +318,24 @@ export function normalizeAdPost(ad, account = {}, pageNames = {}) {
     url: storyId ? `https://www.facebook.com/${storyId.replace('_', '/posts/')}` : '',
     note: '',
     favourite: 0,
+  };
+}
+
+// Map an ad-interest search hit to the 兴趣定位 table's columns.
+export function normalizeInterest(i) {
+  const path = Array.isArray(i.path) ? i.path.filter(Boolean) : [];
+  const type = i.type || (path[0] || '兴趣');
+  return {
+    id: String(i.id || ''),
+    keyword: i.name || '',
+    category: path.length ? path.join(' > ') : type,
+    audience: i.audience_size_lower_bound != null
+      ? Number(i.audience_size_lower_bound).toLocaleString('en-US')
+        + (i.audience_size_upper_bound != null ? ' - ' + Number(i.audience_size_upper_bound).toLocaleString('en-US') : '')
+      : (i.audience_size != null ? Number(i.audience_size).toLocaleString('en-US') : '—'),
+    type,
+    topic: i.topic || '',
+    link: 'https://www.facebook.com/adsmanager/audiences',
   };
 }
 

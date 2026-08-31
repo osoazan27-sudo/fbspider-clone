@@ -1,12 +1,12 @@
 <template>
   <div class="module-card">
     <a-space wrap style="margin-bottom:12px">
-      <a-button type="primary" @click="act('授权')">授权</a-button>
-      <a-button @click="act('主页推送')">主页推送</a-button>
+      <a-button type="primary" @click="ask('授权')">授权</a-button>
+      <a-button @click="ask('主页推送')">主页推送</a-button>
       <a-button @click="blackVisible = true">黑名单设置</a-button>
       <a-button @click="shieldVisible = true">屏蔽词设置</a-button>
-      <a-button status="danger" @click="act('停用主页')">停用主页</a-button>
-      <a-button @click="act('重新启用主页')">重新启用主页</a-button>
+      <a-button status="danger" @click="ask('停用主页')">停用主页</a-button>
+      <a-button @click="ask('重新启用主页')">重新启用主页</a-button>
       <a-button @click="nameVisible = true">修改主页名称</a-button>
     </a-space>
 
@@ -50,6 +50,8 @@
     </a-table>
 
     <ActionProgress :visible="running || progress.results.length>0" :running="running" :progress="progress" :title="curAction+' 进度'" @close="progress.results=[]" />
+    <ActionDialog :visible="dialog.visible" :label="dialog.label" :action="dialog.action"
+      :count="dialog.count" @submit="(c) => submitDialog(c, selectedRows)" @close="closeDialog" />
 
     <a-modal v-model:visible="nameVisible" title="修改主页名称" @ok="doName">
       <a-form :model="nameForm" layout="vertical">
@@ -82,8 +84,9 @@ import { getPages } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
 import SourceTag from '../../components/SourceTag.vue';
 import ActionProgress from '../../components/ActionProgress.vue';
+import ActionDialog from '../../components/ActionDialog.vue';
 
-const { loading, keyword, selectedKeys, selectedRows, filtered, running, progress, load, saveNote, toggleFav, runAction, source } = useModule('page', 3, {
+const { loading, keyword, selectedKeys, selectedRows, filtered, running, progress, load, saveNote, toggleFav, runAction, source, dialog, promptAction, submitDialog, closeDialog } = useModule('page', 3, {
   liveLoad: async () => {
     const r = await getPages();
     if (r && r.success && r.data && Array.isArray(r.data.data)) {
@@ -111,7 +114,8 @@ const tabFiltered = computed(() => {
 });
 
 async function refresh() { await load(); usage.value?.reload(); }
-async function act(label) { curAction.value = label; await runAction(label, selectedRows.value); }
+async function act(label, ctx) { curAction.value = label; await runAction(label, selectedRows.value, ctx); }
+function ask(label) { curAction.value = label; return promptAction(label, selectedRows.value); }
 function doName() { if (!nameForm.value.password) return Message.warning('请输入当前Facebook账号密码'); nameVisible.value = false; act('修改主页名称'); }
 onMounted(refresh);
 </script>

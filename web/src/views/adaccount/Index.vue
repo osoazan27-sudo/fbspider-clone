@@ -2,17 +2,17 @@
   <div class="module-card">
     <!-- action buttons -->
     <a-space wrap style="margin-bottom:12px">
-      <a-button type="primary" @click="act('增加授权')">增加授权</a-button>
-      <a-button status="danger" @click="act('删除授权')">删除授权</a-button>
-      <a-button @click="act('添加到BM')">添加到BM</a-button>
-      <a-button @click="limitVisible = true">设置限额</a-button>
-      <a-button @click="act('重置限额')">重置限额</a-button>
-      <a-button @click="act('隐藏管理员')">隐藏管理员</a-button>
-      <a-button @click="pushVisible = true">账号推送</a-button>
-      <a-button @click="act('BM合作伙伴')">BM合作伙伴</a-button>
-      <a-button @click="renameVisible = true">账号重命名</a-button>
-      <a-button @click="companyVisible = true">更新公司信息</a-button>
-      <a-button @click="act('支付记录')">支付记录</a-button>
+      <a-button type="primary" @click="ask('增加授权')">增加授权</a-button>
+      <a-button status="danger" @click="ask('删除授权')">删除授权</a-button>
+      <a-button @click="ask('添加到BM')">添加到BM</a-button>
+      <a-button @click="ask('设置限额')">设置限额</a-button>
+      <a-button @click="ask('重置限额')">重置限额</a-button>
+      <a-button @click="ask('隐藏管理员')">隐藏管理员</a-button>
+      <a-button @click="ask('账号推送')">账号推送</a-button>
+      <a-button @click="ask('BM合作伙伴')">BM合作伙伴</a-button>
+      <a-button @click="ask('账号重命名')">账号重命名</a-button>
+      <a-button @click="ask('更新公司信息')">更新公司信息</a-button>
+      <a-button @click="ask('支付记录')">支付记录</a-button>
       <a-button @click="exportCsv">导出csv</a-button>
     </a-space>
 
@@ -100,59 +100,9 @@
 
     <ActionProgress :visible="running || progress.results.length>0" :running="running" :progress="progress"
       :title="`${curAction} 进度`" @close="progress.results = []" />
+    <ActionDialog :visible="dialog.visible" :label="dialog.label" :action="dialog.action"
+      :count="dialog.count" @submit="(c) => submitDialog(c, selectedRows)" @close="closeDialog" />
 
-    <!-- 设置限额 -->
-    <a-modal v-model:visible="limitVisible" title="设置账号额度" @ok="doLimit">
-      <a-alert style="margin-bottom:12px">将对选中的 {{ selectedRows.length }} 个账号设置花费限额</a-alert>
-      <a-form :model="limitForm" layout="vertical">
-        <a-form-item label="操作类型">
-          <a-radio-group v-model="limitForm.type">
-            <a-radio value="set">设置限额</a-radio>
-            <a-radio value="add">增加额度</a-radio>
-            <a-radio value="reduce">减少额度</a-radio>
-            <a-radio value="zero">账户清零</a-radio>
-            <a-radio value="remove">删除限制</a-radio>
-          </a-radio-group>
-        </a-form-item>
-        <a-form-item v-if="['set','add','reduce'].includes(limitForm.type)" label="金额 (USD)">
-          <a-input-number v-model="limitForm.value" :min="0" placeholder="输入金额" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 账号重命名 -->
-    <a-modal v-model:visible="renameVisible" title="修改账号名称" @ok="doRename">
-      <a-form :model="renameForm" layout="vertical">
-        <a-form-item label="账号名称"><a-input v-model="renameForm.name" placeholder="请输入账号名称" /></a-form-item>
-        <a-checkbox v-model="renameForm.auto">自动重命名账号（追加序号）</a-checkbox>
-      </a-form>
-    </a-modal>
-
-    <!-- 账号推送 -->
-    <a-modal v-model:visible="pushVisible" title="账号推送" @ok="doPush">
-      <a-form :model="pushForm" layout="vertical">
-        <a-form-item label="接收人邮箱"><a-input v-model="pushForm.email" placeholder="搜索用户邮箱" /></a-form-item>
-        <a-form-item label="授权角色">
-          <a-select v-model="pushForm.role">
-            <a-option value="admin">授权管理员</a-option>
-            <a-option value="advertiser">授权广告管理员</a-option>
-            <a-option value="analyst">授权广告分析员</a-option>
-          </a-select>
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 更新公司信息 -->
-    <a-modal v-model:visible="companyVisible" title="修改BM公司信息" @ok="() => { companyVisible=false; act('更新公司信息'); }">
-      <a-form :model="companyForm" layout="vertical">
-        <a-form-item label="选择国家"><a-input v-model="companyForm.country" placeholder="国家" /></a-form-item>
-        <a-form-item label="州、省或地区"><a-input v-model="companyForm.state" /></a-form-item>
-        <a-form-item label="市/镇"><a-input v-model="companyForm.city" /></a-form-item>
-        <a-form-item label="街道地址第 1 行"><a-input v-model="companyForm.street" /></a-form-item>
-        <a-form-item label="邮编"><a-input v-model="companyForm.zip" /></a-form-item>
-        <a-form-item label="税号(选填)"><a-input v-model="companyForm.tax" /></a-form-item>
-      </a-form>
-    </a-modal>
   </div>
 </template>
 
@@ -160,14 +110,16 @@
 import { ref, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
-import { getAdAccounts, renameAdAccount } from '../../api/fbBridge';
+import { getAdAccounts } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
 import SourceTag from '../../components/SourceTag.vue';
 import ActionProgress from '../../components/ActionProgress.vue';
+import ActionDialog from '../../components/ActionDialog.vue';
 
 const {
   loading, keyword, selectedKeys, selectedRows, filtered, source,
   running, progress, load, saveNote, toggleFav, runAction,
+  dialog, promptAction, submitDialog, closeDialog,
 } = useModule('adaccount', 1, {
   // live mode: pull the user's real ad accounts via the extension bridge
   liveLoad: async () => {
@@ -184,46 +136,17 @@ const filterValue = ref('');
 const lastUpdate = ref('');
 const curAction = ref('');
 
-const limitVisible = ref(false);
-const renameVisible = ref(false);
-const pushVisible = ref(false);
-const companyVisible = ref(false);
-const limitForm = ref({ type: 'set', value: 0 });
-const renameForm = ref({ name: '', auto: false });
-const pushForm = ref({ email: '', role: 'admin' });
-const companyForm = ref({ country: '', state: '', city: '', street: '', zip: '', tax: '' });
-
 async function refresh() {
   await load();
   lastUpdate.value = new Date().toLocaleString();
   usage.value?.reload();
 }
-async function act(label) {
+async function act(label, ctx) {
   curAction.value = label;
-  await runAction(label, selectedRows.value);
+  await runAction(label, selectedRows.value, ctx);
 }
-function doLimit() { limitVisible.value = false; act('设置限额'); }
-async function doRename() {
-  if (!renameForm.value.name && !renameForm.value.auto) return Message.warning('账号名称不能为空');
-  renameVisible.value = false;
-  // in live mode, actually rename the selected accounts via the Graph API
-  if (source.value === 'live') {
-    curAction.value = '账号重命名';
-    running.value = true;
-    progress.value = { done: 0, total: selectedRows.value.length, results: [] };
-    for (let i = 0; i < selectedRows.value.length; i++) {
-      const row = selectedRows.value[i];
-      const name = renameForm.value.auto ? `${renameForm.value.name || row.name} ${i + 1}` : renameForm.value.name;
-      const r = await renameAdAccount(row.account_id, name);
-      progress.value.done = i + 1;
-      progress.value.results.push({ obj_id: row.account_id, name, status: r && r.success ? 1 : 0, message: r && r.success ? '成功' : (r.info || r.error || '失败') });
-    }
-    running.value = false;
-    return;
-  }
-  act('账号重命名');
-}
-function doPush() { if (!pushForm.value.email) return Message.warning('请先搜索用户'); pushVisible.value = false; act('账号推送'); }
+// collect whatever the operation needs (registry-driven), then run it
+function ask(label) { curAction.value = label; return promptAction(label, selectedRows.value); }
 
 function exportCsv() {
   const rowsToExport = selectedRows.value.length ? selectedRows.value : filtered.value;

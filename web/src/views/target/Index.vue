@@ -5,7 +5,8 @@
         <div class="page-toolbar">
           <a-input-search v-model="kw" placeholder="请输入兴趣关键字" style="width:260px" @search="search" />
           <a-select v-model="lang" style="width:130px"><a-option value="zh">中文</a-option><a-option value="en">English</a-option></a-select>
-          <a-button type="primary" :loading="loading" @click="search"><template #icon><icon-search /></template>搜索</a-button>
+          <SourceTag :source="source" />
+      <a-button type="primary" :loading="loading" @click="search"><template #icon><icon-search /></template>搜索</a-button>
           <div class="spacer" />
           <a-button :disabled="!selectedKeys.length" @click="copySelected">复制选中的 {{ selectedKeys.length }} 个</a-button>
           <a-button type="primary" :disabled="!selectedKeys.length" @click="saveVisible = true">保存选中的</a-button>
@@ -71,6 +72,9 @@ import { ref, computed, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { useUserStore } from '../../store/user';
 import { interestSearch, keywordFiles, saveKeywordFile, deleteKeywordFile, keywordItems } from '../../api';
+import { searchInterests } from '../../api/fbBridge';
+import { useAppStore } from '../../store/app';
+import SourceTag from '../../components/SourceTag.vue';
 
 const userStore = useUserStore();
 const kw = ref(''); const lang = ref('zh'); const loading = ref(false);
@@ -78,14 +82,30 @@ const results = ref([]); const selectedKeys = ref([]); const typeTab = ref('all'
 const files = ref([]); const saveVisible = ref(false); const fileName = ref('');
 const fileVisible = ref(false); const curFile = ref(null); const fileItems = ref([]);
 
+const appStore = useAppStore();
+const source = ref('mock');
+
 const typeFiltered = computed(() => typeTab.value === 'all' ? results.value : results.value.filter((r) => r.type === typeTab.value));
 function count(t) { return results.value.filter((r) => r.type === t).length; }
 
 async function search() {
   if (!kw.value.trim()) return Message.warning('请先选择关键字！');
   loading.value = true; selectedKeys.value = [];
-  try { const r = await interestSearch(kw.value.trim()); if (r.status === 1) results.value = r.data; }
-  finally { loading.value = false; }
+  try {
+    // live: Facebook's real ad-interest search (/search?type=adinterest)
+    if (appStore.dataMode === 'live') {
+      if (!appStore.extInstalled) {
+        Message.error('当前是「实时」但没有检测到插件，已改用演示数据');
+      } else {
+        const r = await searchInterests(kw.value.trim(), 100);
+        if (r && r.success && Array.isArray(r.rows)) { results.value = r.rows; source.value = 'live'; return; }
+        Message.warning('实时搜索失败：' + ((r && (r.info || r.error)) || '未知错误') + '（已回退演示数据）');
+      }
+    }
+    const r = await interestSearch(kw.value.trim());
+    if (r.status === 1) results.value = r.data;
+    source.value = 'mock';
+  } finally { loading.value = false; }
 }
 function copySelected() {
   const rows = results.value.filter((r) => selectedKeys.value.includes(r.id));

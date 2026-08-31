@@ -7,7 +7,7 @@ import {
   parseFbResponse, fillPlaceholders, extractSessionFromHtml,
   computeJazoest, GraphAPI, normalizeAdAccount,
   normalizePixel, normalizeAdPost, normalizeAdAccountInsights,
-  describeFbError, isWriteOk,
+  normalizeInterest, describeFbError, isWriteOk,
 } from './lib/fb.js';
 
 const SESSION_KEY = 'fbSession';
@@ -116,6 +116,20 @@ async function executeCookie(req) {
   } catch (e) {
     return { success: false, error: String(e).slice(0, 160) };
   }
+}
+
+// Most page-level writes need a PAGE token, not the user token. Fetch it once
+// per page and cache for the life of the worker.
+const pageTokenCache = new Map();
+async function pageTokenFor(pageId) {
+  if (pageTokenCache.has(pageId)) return { ok: true, token: pageTokenCache.get(pageId) };
+  const r = await executeScript({ url: GraphAPI.pageToken(pageId) });
+  const token = r && r.success && r.data && r.data.access_token;
+  if (!token) {
+    return { ok: false, info: '拿不到该主页的 access_token（通常是你不是该主页管理员，或会话缺少 pages 权限）：' + describeFbError(r) };
+  }
+  pageTokenCache.set(pageId, token);
+  return { ok: true, token };
 }
 
 // High-level convenience ops the web app can call by name (stable Graph API).
@@ -256,6 +270,135 @@ async function highLevel(op, params = {}) {
       if (!pixelId || !accountId) return { success: false, info: '缺少像素 ID 或广告账号 ID' };
       const r = await executeScript({ url: GraphAPI.pixelUnshareFromAdAccount(pixelId, accountId), options: { method: 'DELETE' } });
       return isWriteOk(r) ? { success: true, data: r.data, info: '已取消分配' } : { success: false, info: describeFbError(r) };
+    }
+
+    // ---- ad account: people + spend cap + BM ----
+    case 'addAdAccountUser': {
+      const { actId, uid, tasks } = params;
+      if (!actId || !uid) return { success: false, info: '缺少广告账号或用户 UID' };
+      const r = await executeScript({ url: GraphAPI.addAdAccountUser(actId, uid, tasks), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已授权' } : { success: false, info: describeFbError(r) };
+    }
+    case 'removeAdAccountUser': {
+      const { actId, uid } = params;
+      if (!actId || !uid) return { success: false, info: '缺少广告账号或用户 UID' };
+      const r = await executeScript({ url: GraphAPI.removeAdAccountUser(actId, uid), options: { method: 'DELETE' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已移除授权' } : { success: false, info: describeFbError(r) };
+    }
+    case 'setAdAccountSpendCap': {
+      const { actId, amount } = params;
+      if (!actId) return { success: false, info: '缺少广告账号' };
+      // the API takes minor units; callers pass whole currency units
+      const cents = Math.round(Number(amount || 0) * 100);
+      if (!Number.isFinite(cents) || cents < 0) return { success: false, info: '限额必须是不小于 0 的数字' };
+      const r = await executeScript({ url: GraphAPI.setAdAccountSpendCap(actId, cents), options: { method: 'POST' } });
+      return isWriteOk(r)
+        ? { success: true, data: r.data, info: cents === 0 ? '已重置限额' : '限额已设为 ' + amount }
+        : { success: false, info: describeFbError(r) };
+    }
+    case 'addAdAccountToBusiness': {
+      const { businessId, actId } = params;
+      if (!businessId || !actId) return { success: false, info: '缺少 BM ID 或广告账号' };
+      const r = await executeScript({ url: GraphAPI.addAdAccountToBusiness(businessId, actId), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已添加到 BM' } : { success: false, info: describeFbError(r) };
+    }
+
+    // ---- business: invite a person ----
+    case 'inviteBusinessUser': {
+      const { businessId, email, role } = params;
+      if (!businessId || !email) return { success: false, info: '缺少 BM ID 或邮箱' };
+      const r = await executeScript({ url: GraphAPI.inviteBusinessUser(businessId, email, role), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '邀请已发送' } : { success: false, info: describeFbError(r) };
+    }
+
+    // ---- pixel: create + people ----
+    case 'createPixel': {
+      const { businessId, name } = params;
+      if (!businessId || !name) return { success: false, info: '缺少 BM ID 或像素名称' };
+      const r = await executeScript({ url: GraphAPI.createPixel(businessId, name), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已创建：' + (r.data.id || name) } : { success: false, info: describeFbError(r) };
+    }
+    case 'addPixelUser': {
+      const { pixelId, uid, tasks } = params;
+      if (!pixelId || !uid) return { success: false, info: '缺少像素 ID 或用户 UID' };
+      const r = await executeScript({ url: GraphAPI.addPixelUser(pixelId, uid, tasks), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已分配' } : { success: false, info: describeFbError(r) };
+    }
+    case 'removePixelUser': {
+      const { pixelId, uid } = params;
+      if (!pixelId || !uid) return { success: false, info: '缺少像素 ID 或用户 UID' };
+      const r = await executeScript({ url: GraphAPI.removePixelUser(pixelId, uid), options: { method: 'DELETE' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已移除' } : { success: false, info: describeFbError(r) };
+    }
+
+    // ---- pages (these need a page-scoped token) ----
+    case 'renamePage': {
+      const { pageId, name } = params;
+      if (!pageId || !name) return { success: false, info: '缺少主页 ID 或新名称' };
+      const tk = await pageTokenFor(pageId);
+      if (!tk.ok) return { success: false, info: tk.info };
+      const r = await executeScript({ url: GraphAPI.renamePage(pageId, name, tk.token), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已改名' } : { success: false, info: describeFbError(r) };
+    }
+    case 'setPagePublished': {
+      const { pageId, published } = params;
+      if (!pageId) return { success: false, info: '缺少主页 ID' };
+      const tk = await pageTokenFor(pageId);
+      if (!tk.ok) return { success: false, info: tk.info };
+      const r = await executeScript({ url: GraphAPI.setPagePublished(pageId, published, tk.token), options: { method: 'POST' } });
+      return isWriteOk(r)
+        ? { success: true, data: r.data, info: published ? '已重新启用' : '已停用' }
+        : { success: false, info: describeFbError(r) };
+    }
+    case 'setPageBannedWords': {
+      const { pageId, words } = params;
+      if (!pageId || !words) return { success: false, info: '缺少主页 ID 或屏蔽词' };
+      const tk = await pageTokenFor(pageId);
+      if (!tk.ok) return { success: false, info: tk.info };
+      const r = await executeScript({ url: GraphAPI.setPageBannedWords(pageId, words, tk.token), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '屏蔽词已更新' } : { success: false, info: describeFbError(r) };
+    }
+    case 'blockPageUser': {
+      const { pageId, user } = params;
+      if (!pageId || !user) return { success: false, info: '缺少主页 ID 或用户' };
+      const tk = await pageTokenFor(pageId);
+      if (!tk.ok) return { success: false, info: tk.info };
+      const r = await executeScript({ url: GraphAPI.blockPageUser(pageId, user, tk.token), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已加入黑名单' } : { success: false, info: describeFbError(r) };
+    }
+
+    // ---- interest targeting search ----
+    case 'searchInterests': {
+      const { q, limit } = params;
+      if (!q) return { success: false, info: '缺少关键词' };
+      const r = await executeScript({ url: GraphAPI.searchInterests(q, limit) });
+      if (!r.success || !r.data || !Array.isArray(r.data.data)) return { success: false, info: describeFbError(r) };
+      return { success: true, rows: r.data.data.map(normalizeInterest), data: r.data };
+    }
+
+    // ---- post comments ----
+    case 'getPostComments': {
+      const { postId } = params;
+      if (!postId) return { success: false, info: '缺少帖子 ID' };
+      const r = await executeScript({ url: GraphAPI.postComments(postId, params.limit) });
+      if (!r.success || !r.data || !Array.isArray(r.data.data)) return { success: false, info: describeFbError(r) };
+      return { success: true, rows: r.data.data, data: r.data };
+    }
+    case 'hideComment': {
+      const { commentId, hidden, pageId } = params;
+      if (!commentId) return { success: false, info: '缺少评论 ID' };
+      const tk = pageId ? await pageTokenFor(pageId) : { ok: true, token: null };
+      if (!tk.ok) return { success: false, info: tk.info };
+      const r = await executeScript({ url: GraphAPI.hideComment(commentId, hidden !== false, tk.token), options: { method: 'POST' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: hidden !== false ? '已隐藏' : '已取消隐藏' } : { success: false, info: describeFbError(r) };
+    }
+    case 'deleteComment': {
+      const { commentId, pageId } = params;
+      if (!commentId) return { success: false, info: '缺少评论 ID' };
+      const tk = pageId ? await pageTokenFor(pageId) : { ok: true, token: null };
+      if (!tk.ok) return { success: false, info: tk.info };
+      const r = await executeScript({ url: GraphAPI.deleteComment(commentId, tk.token), options: { method: 'DELETE' } });
+      return isWriteOk(r) ? { success: true, data: r.data, info: '已删除' } : { success: false, info: describeFbError(r) };
     }
 
     // Who is this pixel currently shared with?

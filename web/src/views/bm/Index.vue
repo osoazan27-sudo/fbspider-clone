@@ -1,9 +1,9 @@
 <template>
   <div class="module-card">
     <a-space wrap style="margin-bottom:12px">
-      <a-button type="primary" @click="act('隐藏管理员')">隐藏管理员</a-button>
+      <a-button type="primary" @click="ask('隐藏管理员')">隐藏管理员</a-button>
       <a-button @click="inviteVisible = true">邀请人员</a-button>
-      <a-button @click="act('BM推送')">BM推送</a-button>
+      <a-button @click="ask('BM推送')">BM推送</a-button>
       <a-button status="danger" @click="doRemove">移出BM</a-button>
     </a-space>
 
@@ -52,6 +52,8 @@
     </a-table>
 
     <ActionProgress :visible="running || progress.results.length>0" :running="running" :progress="progress" :title="curAction+' 进度'" @close="progress.results=[]" />
+    <ActionDialog :visible="dialog.visible" :label="dialog.label" :action="dialog.action"
+      :count="dialog.count" @submit="(c) => submitDialog(c, selectedRows)" @close="closeDialog" />
 
     <a-modal v-model:visible="inviteVisible" title="邀请人员" @ok="doInvite">
       <a-form :model="inviteForm" layout="vertical">
@@ -77,8 +79,9 @@ import { getBusinesses } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
 import SourceTag from '../../components/SourceTag.vue';
 import ActionProgress from '../../components/ActionProgress.vue';
+import ActionDialog from '../../components/ActionDialog.vue';
 
-const { loading, keyword, selectedKeys, selectedRows, filtered, running, progress, load, saveNote, toggleFav, runAction, source } = useModule('bm', 7, {
+const { loading, keyword, selectedKeys, selectedRows, filtered, running, progress, load, saveNote, toggleFav, runAction, source, dialog, promptAction, submitDialog, closeDialog } = useModule('bm', 7, {
   liveLoad: async () => {
     const r = await getBusinesses();
     if (r && r.success && r.data && Array.isArray(r.data.data)) {
@@ -99,6 +102,7 @@ const appStore = useAppStore();
 
 async function refresh() { await load(); usage.value?.reload(); }
 async function act(label, ctx) { curAction.value = label; await runAction(label, selectedRows.value, ctx); }
+function ask(label) { curAction.value = label; return promptAction(label, selectedRows.value); }
 
 // Leaving a BM is not reversible from here — you'd need to be re-invited.
 function doRemove() {

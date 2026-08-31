@@ -1,14 +1,14 @@
 <template>
   <div class="module-card">
     <a-space wrap style="margin-bottom:12px">
-      <a-button type="primary" @click="shareVisible = true">BM间分享</a-button>
-      <a-button @click="assignVisible = true">分配给账号</a-button>
-      <a-button @click="act('分配给人员')">分配给人员</a-button>
-      <a-button @click="act('分享查询')">分享查询</a-button>
-      <a-button @click="createVisible = true">批量创建</a-button>
-      <a-button status="danger" @click="act('删除广告账号')">删除广告账号</a-button>
-      <a-button status="danger" @click="act('删除合作伙伴')">删除合作伙伴</a-button>
-      <a-button status="danger" @click="act('删除管理员')">删除管理员</a-button>
+      <a-button type="primary" @click="ask('BM间分享')">BM间分享</a-button>
+      <a-button @click="ask('分配给账号')">分配给账号</a-button>
+      <a-button @click="ask('分配给人员')">分配给人员</a-button>
+      <a-button @click="ask('分享查询')">分享查询</a-button>
+      <a-button @click="ask('批量创建')">批量创建</a-button>
+      <a-button status="danger" @click="ask('删除广告账号')">删除广告账号</a-button>
+      <a-button status="danger" @click="ask('删除合作伙伴')">删除合作伙伴</a-button>
+      <a-button status="danger" @click="ask('删除管理员')">删除管理员</a-button>
     </a-space>
 
     <div class="page-toolbar">
@@ -61,36 +61,14 @@
     </a-table>
 
     <ActionProgress :visible="running || progress.results.length>0" :running="running" :progress="progress" :title="curAction+' 进度'" @close="progress.results=[]" />
+    <ActionDialog :visible="dialog.visible" :label="dialog.label" :action="dialog.action"
+      :count="dialog.count" @submit="(c) => submitDialog(c, selectedRows)" @close="closeDialog" />
 
-    <a-modal v-model:visible="shareVisible" title="BM之间分享像素" @ok="doShare">
-      <a-alert style="margin-bottom:12px">将选中的 {{ selectedRows.length }} 个像素分享给目标 BM</a-alert>
-      <a-input v-model="shareBm" placeholder="输入你要分享的BM ID" />
-      <div style="margin-top:10px">
-        <a-checkbox v-model="unshareMode">改为「取消分享」（把像素从该 BM 收回）</a-checkbox>
-      </div>
-      <a-alert v-if="isLive" type="warning" style="margin-top:12px">
-        实时模式：这会真实修改你 Facebook 上的像素共享关系。
-      </a-alert>
-    </a-modal>
+    
 
-    <a-modal v-model:visible="assignVisible" title="分配像素给广告账号" @ok="doAssign">
-      <a-alert style="margin-bottom:12px">将选中的 {{ selectedRows.length }} 个像素分配给该广告账号</a-alert>
-      <a-input v-model="assignAccount" placeholder="输入广告账号 ID（可带或不带 act_ 前缀）" />
-      <div style="margin-top:10px">
-        <a-checkbox v-model="unassignMode">改为「取消分配」</a-checkbox>
-      </div>
-      <a-alert v-if="isLive" type="warning" style="margin-top:12px">
-        实时模式：这会真实修改你 Facebook 上的像素分配。
-      </a-alert>
-    </a-modal>
+    
 
-    <a-modal v-model:visible="createVisible" title="批量创建像素" @ok="doCreate">
-      <a-form :model="createForm" layout="vertical">
-        <a-form-item label="当前操作的BM"><a-input v-model="createForm.bm" placeholder="BM ID" /></a-form-item>
-        <a-form-item label="像素名称"><a-input v-model="createForm.name" placeholder="输入像素名称" /></a-form-item>
-        <a-form-item label="像素数量"><a-input-number v-model="createForm.count" :min="1" :max="100" placeholder="不能超过100" /></a-form-item>
-      </a-form>
-    </a-modal>
+    
   </div>
 </template>
 
@@ -98,13 +76,13 @@
 import { ref, computed, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
-import { useAppStore } from '../../store/app';
 import { getAllPixels } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
 import SourceTag from '../../components/SourceTag.vue';
 import ActionProgress from '../../components/ActionProgress.vue';
+import ActionDialog from '../../components/ActionDialog.vue';
 
-const { loading, keyword, selectedKeys, selectedRows, filtered, running, progress, load, saveNote, toggleFav, runAction, source } = useModule('pixel', 4, {
+const { loading, keyword, selectedKeys, selectedRows, filtered, running, progress, load, saveNote, toggleFav, runAction, source, dialog, promptAction, submitDialog, closeDialog } = useModule('pixel', 4, {
   // live: sweep every business (and ad account) for real pixels
   liveLoad: async () => {
     const r = await getAllPixels();
@@ -117,27 +95,9 @@ const { loading, keyword, selectedKeys, selectedRows, filtered, running, progres
 });
 const liveMeta = ref(null);
 const usage = ref(); const slow = ref(true); const filterMode = ref('all'); const curAction = ref('');
-const shareVisible = ref(false); const createVisible = ref(false); const assignVisible = ref(false);
-const shareBm = ref(''); const createForm = ref({ bm: '', name: '', count: 10 });
-const assignAccount = ref(''); const unshareMode = ref(false); const unassignMode = ref(false);
-const appStore = useAppStore();
-const isLive = computed(() => appStore.isLive);
-
 async function refresh() { await load(); usage.value?.reload(); }
 async function act(label, ctx) { curAction.value = label; await runAction(label, selectedRows.value, ctx); }
+function ask(label) { curAction.value = label; return promptAction(label, selectedRows.value); }
 
-function doShare() {
-  if (!shareBm.value) return Message.warning('请输入BM ID');
-  if (!selectedRows.value.length) return Message.warning('请先选择像素');
-  shareVisible.value = false;
-  act(unshareMode.value ? '取消BM分享' : 'BM间分享', { targetBm: shareBm.value.trim() });
-}
-function doAssign() {
-  if (!assignAccount.value) return Message.warning('请输入广告账号 ID');
-  if (!selectedRows.value.length) return Message.warning('请先选择像素');
-  assignVisible.value = false;
-  act(unassignMode.value ? '取消账号分配' : '分配给账号', { accountId: assignAccount.value.trim() });
-}
-function doCreate() { if (!createForm.value.bm) return Message.warning('请输入BM ID'); if (createForm.value.count > 100) return Message.warning('不能超过100'); createVisible.value = false; act('批量创建'); }
 onMounted(refresh);
 </script>

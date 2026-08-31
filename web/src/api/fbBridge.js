@@ -65,5 +65,6 @@ export const renameAdAccount = (actId, name) => fbOp('renameAdAccount', { actId,
 export const getAllPixels = (params = {}) => rpc('FB_OP', { op: 'getAllPixels', params }, 180000);
 export const getAdPosts = (params = {}) => rpc('FB_OP', { op: 'getAdPosts', params }, 180000);
 export const getAdAccountsWithInsights = (preset) => rpc('FB_OP', { op: 'getAdAccountsWithInsights', params: { preset } }, 90000);
+export const searchInterests = (q, limit) => fbOp('searchInterests', { q, limit });
 
 export function bridgeReady() { return ready; }

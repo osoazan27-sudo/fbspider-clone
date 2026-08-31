@@ -3,7 +3,7 @@ import { Message, Modal } from '@arco-design/web-vue';
 import * as api from '../api';
 import { useAppStore } from '../store/app';
 import { sortModuleRows } from '../utils/sortRows';
-import { hasRealAction, runRealAction } from '../api/fbActions';
+import { hasRealAction, runRealAction, getAction, needsInput, whyUnsupported } from '../api/fbActions';
 
 // shared plumbing for a module list page: load rows, row selection,
 // note/favourite overlay, and a simulated batch-action runner with a progress feel.
@@ -72,7 +72,10 @@ export function useModule(moduleName, moduleId, opts = {}) {
         return;
       }
       if (!hasRealAction(moduleName, label)) {
-        Message.error(`「${label}」还没有接入真实接口，实时模式下不会执行（切到「演示」可以看流程）`);
+        const why = whyUnsupported(moduleName, label);
+        Message.error(why
+          ? `「${label}」无法接入真实接口：${why}`
+          : `「${label}」还没有接入真实接口，实时模式下不会执行（切到「演示」可以看流程）`);
         return;
       }
       running.value = true;
@@ -108,6 +111,27 @@ export function useModule(moduleName, moduleId, opts = {}) {
     } finally { running.value = false; }
   }
 
+  // ---- generic parameter dialog ----
+  // A view calls promptAction(label); if the operation declares inputs (or a
+  // confirmation) we collect them first, then run. Keeps every button's wiring
+  // in the registry instead of a bespoke modal per button.
+  const dialog = ref({ visible: false, label: '', action: null, count: 0 });
+
+  function promptAction(label, targets) {
+    if (!targets.length) { Message.warning('请先选择对象'); return; }
+    if (needsInput(moduleName, label)) {
+      dialog.value = { visible: true, label, action: getAction(moduleName, label), count: targets.length };
+      return;
+    }
+    return runAction(label, targets);
+  }
+  function submitDialog(ctx, targets) {
+    const label = dialog.value.label;
+    dialog.value.visible = false;
+    return runAction(label, targets, ctx);
+  }
+  function closeDialog() { dialog.value.visible = false; }
+
   function confirmAction(label, targets, onConfirm) {
     if (!targets.length) return Message.warning('请先选择对象');
     Modal.confirm({
@@ -120,5 +144,6 @@ export function useModule(moduleName, moduleId, opts = {}) {
   return {
     loading, rows, keyword, selectedKeys, selectedRows, filtered, source,
     running, progress, load, saveNote, toggleFav, runAction, confirmAction,
+    dialog, promptAction, submitDialog, closeDialog,
   };
 }
