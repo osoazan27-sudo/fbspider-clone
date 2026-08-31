@@ -239,9 +239,15 @@ export const GraphAPI = {
 // what Facebook actually objected to instead of a generic "失败".
 export function describeFbError(resp) {
   if (!resp) return '无响应';
-  if (resp.error && typeof resp.error === 'string') return resp.error;
-  const e = (resp.data && resp.data.error) || resp.error;
-  if (!e) return resp.info || '未知错误';
+  // Prefer the structured Graph error, then an already-described message, and
+  // only fall back to an opaque code string like 'GRAPH_ERROR' / 'FETCH_ERROR'.
+  const e = (resp.data && resp.data.error)
+    || (resp.error && typeof resp.error === 'object' ? resp.error : null);
+  if (!e) {
+    if (resp.info) return resp.info;
+    if (typeof resp.error === 'string') return resp.error;
+    return '未知错误';
+  }
   const parts = [];
   if (e.error_user_msg) parts.push(e.error_user_msg);
   else if (e.message) parts.push(e.message);

@@ -39,6 +39,9 @@
               </a-radio-group>
             </a-tooltip>
 
+            <!-- when 实时 is on, let the user see exactly where the chain breaks -->
+            <DiagnoseButton v-if="appStore.dataMode==='live'" />
+
             <!-- current FB operating identity -->
             <a-select
               v-if="appStore.dataMode==='mock'"
@@ -117,6 +120,7 @@ import { useUserStore } from '../store/user';
 import { useAppStore } from '../store/app';
 import * as api from '../api';
 import { isExtensionInstalled, pingSession, refreshSession } from '../api/fbBridge';
+import DiagnoseButton from '../components/DiagnoseButton.vue';
 
 const route = useRoute();
 const router = useRouter();

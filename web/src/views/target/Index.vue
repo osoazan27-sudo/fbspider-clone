@@ -72,7 +72,7 @@ import { ref, computed, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { useUserStore } from '../../store/user';
 import { interestSearch, keywordFiles, saveKeywordFile, deleteKeywordFile, keywordItems } from '../../api';
-import { searchInterests } from '../../api/fbBridge';
+import { searchInterests, bridgeError } from '../../api/fbBridge';
 import { useAppStore } from '../../store/app';
 import SourceTag from '../../components/SourceTag.vue';
 
@@ -99,7 +99,7 @@ async function search() {
       } else {
         const r = await searchInterests(kw.value.trim(), 100);
         if (r && r.success && Array.isArray(r.rows)) { results.value = r.rows; source.value = 'live'; return; }
-        Message.warning('实时搜索失败：' + ((r && (r.info || r.error)) || '未知错误') + '（已回退演示数据）');
+        Message.warning('实时搜索失败：' + bridgeError(r) + '（已回退演示数据）');
       }
     }
     const r = await interestSearch(kw.value.trim());

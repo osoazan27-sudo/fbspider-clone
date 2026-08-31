@@ -75,7 +75,7 @@ import { ref, onMounted } from 'vue';
 import { Message, Modal } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
 import { useAppStore } from '../../store/app';
-import { getBusinesses } from '../../api/fbBridge';
+import { getBusinesses, bridgeError } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
 import SourceTag from '../../components/SourceTag.vue';
 import ActionProgress from '../../components/ActionProgress.vue';
@@ -93,7 +93,7 @@ const { loading, keyword, selectedKeys, selectedRows, filtered, running, progres
         partners: '—', ad_accounts: '—', quality: '正常', push_status: '—',
       })) };
     }
-    return { ok: false, info: (r && (r.info || r.error)) || '未知错误' };
+    return { ok: false, info: bridgeError(r) };
   },
 });
 const usage = ref(); const slow = ref(true); const filterMode = ref('all'); const curAction = ref('');

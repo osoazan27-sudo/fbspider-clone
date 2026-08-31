@@ -80,7 +80,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
-import { getPages } from '../../api/fbBridge';
+import { getPages, bridgeError } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
 import SourceTag from '../../components/SourceTag.vue';
 import ActionProgress from '../../components/ActionProgress.vue';
@@ -100,7 +100,7 @@ const { loading, keyword, selectedKeys, selectedRows, filtered, running, progres
         push_status: '—', fan_count: p.fan_count, link: p.link,
       })) };
     }
-    return { ok: false, info: (r && (r.info || r.error)) || '未知错误' };
+    return { ok: false, info: bridgeError(r) };
   },
 });
 const usage = ref(); const slow = ref(true); const statusTab = ref('all'); const curAction = ref('');

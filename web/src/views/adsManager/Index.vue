@@ -64,7 +64,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { moduleList } from '../../api';
-import { getAdAccountsWithInsights } from '../../api/fbBridge';
+import { getAdAccountsWithInsights, bridgeError } from '../../api/fbBridge';
 import { useAppStore } from '../../store/app';
 import SourceTag from '../../components/SourceTag.vue';
 import { sortModuleRows } from '../../utils/sortRows';
@@ -94,7 +94,7 @@ async function refresh() {
     if (appStore.isLive) {
       const r = await getAdAccountsWithInsights(PRESETS[dateRange.value] || 'maximum');
       if (r && r.success && Array.isArray(r.rows)) { rows.value = sortModuleRows(r.rows); source.value = 'live'; return; }
-      Message.warning('实时获取失败：' + ((r && (r.info || r.error)) || '未知错误') + '（已回退演示数据）');
+      Message.warning('实时获取失败：' + bridgeError(r) + '（已回退演示数据）');
     }
     const r = await moduleList('adsManager');
     if (r.status === 1) rows.value = sortModuleRows(r.data);

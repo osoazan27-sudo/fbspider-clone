@@ -110,7 +110,7 @@
 import { ref, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
-import { getAdAccounts } from '../../api/fbBridge';
+import { getAdAccounts, bridgeError } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
 import SourceTag from '../../components/SourceTag.vue';
 import ActionProgress from '../../components/ActionProgress.vue';
@@ -125,7 +125,7 @@ const {
   liveLoad: async () => {
     const r = await getAdAccounts();
     if (r && r.success && r.rows) return { ok: true, rows: r.rows };
-    return { ok: false, info: (r && (r.info || r.error)) || '未知错误' };
+    return { ok: false, info: bridgeError(r) };
   },
 });
 

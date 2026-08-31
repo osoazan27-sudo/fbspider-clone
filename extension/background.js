@@ -101,7 +101,25 @@ async function executeScript(req) {
     });
     const text = await res.text();
     const parsed = parseFbResponse(text);
-    return { success: res.ok, status: res.status, data: parsed.data, raw: parsed.ok ? undefined : String(parsed.data).slice(0, 500) };
+    const data = parsed.data;
+    // Facebook signals failure two ways: a non-2xx status, OR HTTP 200 carrying
+    // an {error:{...}} body. Both used to come back without `info`, which is how
+    // callers ended up reporting a bare "未知错误".
+    const graphError = data && typeof data === 'object' && !Array.isArray(data) && data.error;
+    if (graphError || !res.ok) {
+      const info = graphError
+        ? describeFbError({ data })
+        : `HTTP ${res.status}` + (parsed.ok ? '' : '：' + String(data).slice(0, 200));
+      return {
+        success: false,
+        status: res.status,
+        data,
+        error: graphError ? 'GRAPH_ERROR' : 'HTTP_' + res.status,
+        info,
+        raw: parsed.ok ? undefined : String(data).slice(0, 500),
+      };
+    }
+    return { success: true, status: res.status, data };
   } catch (e) {
     return { success: false, error: 'FETCH_ERROR', info: String(e).slice(0, 200) };
   }
@@ -270,6 +288,38 @@ async function highLevel(op, params = {}) {
       if (!pixelId || !accountId) return { success: false, info: '缺少像素 ID 或广告账号 ID' };
       const r = await executeScript({ url: GraphAPI.pixelUnshareFromAdAccount(pixelId, accountId), options: { method: 'DELETE' } });
       return isWriteOk(r) ? { success: true, data: r.data, info: '已取消分配' } : { success: false, info: describeFbError(r) };
+    }
+
+    // Walk the whole chain and report exactly where it breaks, so a failure
+    // says which step died instead of a bare "未知错误".
+    case 'diagnose': {
+      const session = await getSession();
+      const steps = [];
+      const probe = async (name, url) => {
+        const r = await executeScript({ url });
+        const n = r.success && r.data && Array.isArray(r.data.data) ? r.data.data.length : null;
+        steps.push({
+          step: name,
+          ok: !!r.success,
+          count: n,
+          status: r.status || null,
+          info: r.success ? (n != null ? `返回 ${n} 条` : '成功') : (r.info || r.error || '失败'),
+        });
+        return r;
+      };
+      steps.push({
+        step: '插件会话', ok: !!session.user,
+        info: session.user
+          ? `已登录 UID ${session.user}` + (session.accessToken ? '，已抓到 access_token' : '，⚠️ 没抓到 access_token（去 facebook.com 刷新一下再点插件的刷新会话）')
+          : '未检测到 Facebook 登录，请先在浏览器登录 facebook.com 并点插件里的「刷新会话」',
+      });
+      if (session.user) {
+        await probe('读取账号信息 (/me)', `https://graph.facebook.com/${'v19.0'}/me?fields=id,name&access_token=@token@`);
+        await probe('广告账号 (/me/adaccounts)', GraphAPI.adAccounts());
+        await probe('BM (/me/businesses)', GraphAPI.businesses());
+        await probe('主页 (/me/accounts)', GraphAPI.pages());
+      }
+      return { success: true, steps, session: { user: session.user || null, hasToken: !!session.accessToken } };
     }
 
     // ---- ad account: people + spend cap + BM ----

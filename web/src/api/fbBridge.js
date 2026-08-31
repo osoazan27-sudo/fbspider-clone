@@ -67,4 +67,16 @@ export const getAdPosts = (params = {}) => rpc('FB_OP', { op: 'getAdPosts', para
 export const getAdAccountsWithInsights = (preset) => rpc('FB_OP', { op: 'getAdAccountsWithInsights', params: { preset } }, 90000);
 export const searchInterests = (q, limit) => fbOp('searchInterests', { q, limit });
 
+// Pull the most specific reason out of a bridge reply. Callers used to default
+// to '未知错误', which hid what Facebook actually said.
+export function bridgeError(r, fallback = '返回数据格式异常（请刷新插件后重试）') {
+  if (!r) return '插件无响应（未安装或未刷新）';
+  if (r.info) return r.info;
+  if (r.error) return String(r.error);
+  const e = r.data && r.data.error;
+  if (e) return [e.error_user_msg || e.message, e.code != null ? 'code ' + e.code : ''].filter(Boolean).join(' · ');
+  if (r.success === false) return '调用失败（无更多信息）';
+  return fallback;
+}
+
 export function bridgeReady() { return ready; }

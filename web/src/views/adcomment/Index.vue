@@ -85,7 +85,7 @@
 import { ref, onMounted } from 'vue';
 import { Message } from '@arco-design/web-vue';
 import { useModule } from '../../composables/useModule';
-import { getAdPosts } from '../../api/fbBridge';
+import { getAdPosts, bridgeError } from '../../api/fbBridge';
 import UsageBar from '../../components/UsageBar.vue';
 import SourceTag from '../../components/SourceTag.vue';
 
@@ -97,7 +97,7 @@ const { loading, keyword, filtered, rows, load, source } = useModule('adcomment'
       liveMeta.value = r.meta || null;
       return { ok: true, rows: r.rows };
     }
-    return { ok: false, info: (r && (r.info || r.error)) || '未知错误' };
+    return { ok: false, info: bridgeError(r) };
   },
 });
 const liveMeta = ref(null);
