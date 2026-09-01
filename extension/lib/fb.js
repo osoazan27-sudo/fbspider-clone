@@ -115,16 +115,19 @@ export function extractSessionFromHtml(html) {
 // fbspider requests so the web app gets the same columns.
 const GV = 'v19.0';
 export const GraphAPI = {
+  // Field lists kept to ones the Graph API reliably returns. adtrust_dsl / age /
+  // min_daily_budget / owner were dropped: Facebook now rejects the WHOLE
+  // request with code 100 "nonexisting field" if any one is invalid.
   adAccounts: () =>
     `https://graph.facebook.com/${GV}/me/adaccounts?fields=` +
     encodeURIComponent(
       'name,account_id,account_status,disable_reason,currency,timezone_name,' +
-      'amount_spent,balance,spend_cap,min_daily_budget,funding_source_details,' +
-      'business{id,name},owner,created_time,age,adtrust_dsl'
+      'amount_spent,balance,spend_cap,funding_source_details,' +
+      'business{id,name},created_time'
     ) + '&limit=500&access_token=@token@',
   businesses: () =>
     `https://graph.facebook.com/${GV}/me/businesses?fields=` +
-    encodeURIComponent('id,name,verification_status,created_time,primary_page,two_factor_type,is_disabled_for_integrity_reasons') +
+    encodeURIComponent('id,name,verification_status,created_time,primary_page') +
     '&limit=200&access_token=@token@',
   pages: () =>
     `https://graph.facebook.com/${GV}/me/accounts?fields=` +
@@ -261,6 +264,38 @@ export const GraphAPI = {
     `https://graph.facebook.com/${GV}/${pixelId}/shared_accounts?fields=` +
     encodeURIComponent('id,name,account_id') + '&limit=200&access_token=@token@',
 };
+
+// If a Graph read fails with (#100) "nonexisting field (X)", pull out X so the
+// caller can drop it and retry. Facebook rejects the whole request on one bad
+// field, and it deprecates fields over time, so this keeps reads working.
+export function nonexistentField(resp) {
+  const e = (resp && resp.data && resp.data.error) || (resp && resp.error);
+  if (!e || Number(e.code) !== 100) return null;
+  const m = /nonexisting field \(([^)]+)\)/.exec(e.message || '');
+  return m ? m[1] : null;
+}
+
+// Remove one field from a URL's fields= param, honouring {…} nesting so a bad
+// top-level field is dropped without touching a same-named nested one.
+export function stripFieldFromUrl(url, field) {
+  const m = /([?&]fields=)([^&]*)/.exec(url);
+  if (!m) return url;
+  const decoded = decodeURIComponent(m[2]);
+  const parts = [];
+  let depth = 0, cur = '';
+  for (const ch of decoded) {
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+    if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  if (cur) parts.push(cur);
+  // a part looks like "name" or "business{id,name}" or "insights.date_preset(x){…}"
+  const kept = parts.filter((p) => p.split(/[.{(]/)[0].trim() !== field);
+  if (kept.length === parts.length) return url;                 // not top-level; give up
+  const rebuilt = m[1] + encodeURIComponent(kept.join(','));
+  return url.slice(0, m.index) + rebuilt + url.slice(m.index + m[0].length);
+}
 
 // Pull a human-readable reason out of a Graph API error body so failures say
 // what Facebook actually objected to instead of a generic "失败".

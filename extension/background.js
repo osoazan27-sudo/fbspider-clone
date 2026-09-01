@@ -8,6 +8,7 @@ import {
   computeJazoest, GraphAPI, normalizeAdAccount,
   normalizePixel, normalizeAdPost, normalizeAdAccountInsights,
   normalizeInterest, describeFbError, isWriteOk,
+  nonexistentField, stripFieldFromUrl,
 } from './lib/fb.js';
 
 const SESSION_KEY = 'fbSession';
@@ -146,6 +147,20 @@ async function executeScript(req) {
     // an {error:{...}} body. Both used to come back without `info`, which is how
     // callers ended up reporting a bare "未知错误".
     const graphError = data && typeof data === 'object' && !Array.isArray(data) && data.error;
+
+    // Self-heal deprecated fields: if FB rejects one with code 100, drop it and
+    // retry. Bounded so a genuinely broken request can't loop.
+    if (graphError && method === 'GET') {
+      const bad = nonexistentField({ data });
+      const tries = req.__fieldRetries || 0;
+      if (bad && tries < 8) {
+        const trimmed = stripFieldFromUrl(req.url || '', bad);
+        if (trimmed !== (req.url || '')) {
+          return executeScript({ ...req, url: trimmed, __fieldRetries: tries + 1 });
+        }
+      }
+    }
+
     if (graphError || !res.ok) {
       const info = graphError
         ? describeFbError({ data })

@@ -5,6 +5,7 @@ import {
   extractSessionFromHtml, GraphAPI, normalizeAdAccount,
   normalizePixel, normalizeAdPost, normalizeAdAccountInsights,
   describeFbError, isWriteOk, extractAccessToken,
+  nonexistentField, stripFieldFromUrl,
 } from './lib/fb.js';
 
 let pass = 0;
@@ -249,6 +250,38 @@ t('extractSessionFromHtml uses the same token rules', () => {
   const out = extractSessionFromHtml(`["DTSGInitialData",[],{"token":"DTSG1"}] "access_token":"${tok}"`);
   assert.equal(out.accessToken, tok);
   assert.equal(out.fb_dtsg, 'DTSG1');
+});
+
+// --- self-healing deprecated fields (code 100) ---
+t('nonexistentField pulls the field name out of a code-100 error', () => {
+  assert.equal(nonexistentField({ data: { error: {
+    code: 100, message: '(#100) Tried accessing nonexisting field (adtrust_dsl) on node type AdAccount' } } }),
+    'adtrust_dsl');
+  assert.equal(nonexistentField({ data: { error: { code: 190, message: 'x' } } }), null);
+  assert.equal(nonexistentField({ data: { data: [] } }), null);
+});
+t('stripFieldFromUrl removes a top-level field, keeps the rest', () => {
+  const u = 'https://g/me/adaccounts?fields=' + encodeURIComponent('name,account_id,adtrust_dsl,business{id,name}') + '&limit=5&access_token=@token@';
+  const out = stripFieldFromUrl(u, 'adtrust_dsl');
+  const fields = decodeURIComponent(/fields=([^&]*)/.exec(out)[1]);
+  assert.equal(fields, 'name,account_id,business{id,name}');
+  assert.ok(out.includes('&limit=5&access_token=@token@'), 'mangled the rest of the url');
+});
+t('stripFieldFromUrl does not touch a same-named NESTED field', () => {
+  const u = 'x?fields=' + encodeURIComponent('name,business{id,name}');
+  // "name" appears nested in business{}; only the top-level "name" is dropped
+  const out = stripFieldFromUrl(u, 'name');
+  assert.equal(decodeURIComponent(/fields=([^&]*)/.exec(out)[1]), 'business{id,name}');
+});
+t('stripFieldFromUrl leaves the url alone when the field is not top-level', () => {
+  const u = 'x?fields=' + encodeURIComponent('name,business{id,foo}');
+  assert.equal(stripFieldFromUrl(u, 'foo'), u);   // foo is nested, not stripped
+});
+t('the live field lists no longer request the deprecated fields', () => {
+  const acc = decodeURIComponent(GraphAPI.adAccounts());
+  assert.ok(!/adtrust_dsl|min_daily_budget|,age\b|,owner\b/.test(acc), acc);
+  const biz = decodeURIComponent(GraphAPI.businesses());
+  assert.ok(!/is_disabled_for_integrity_reasons/.test(biz), biz);
 });
 
 console.log(`\n${pass} tests passed.`);
