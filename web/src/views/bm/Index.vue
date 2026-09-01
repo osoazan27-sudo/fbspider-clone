@@ -2,7 +2,7 @@
   <div class="module-card">
     <a-space wrap style="margin-bottom:12px">
       <a-button type="primary" @click="ask('隐藏管理员')">隐藏管理员</a-button>
-      <a-button @click="inviteVisible = true">邀请人员</a-button>
+      <a-button @click="ask('邀请人员')">邀请人员</a-button>
       <a-button @click="ask('BM推送')">BM推送</a-button>
       <a-button status="danger" @click="doRemove">移出BM</a-button>
     </a-space>
@@ -55,18 +55,6 @@
     <ActionDialog :visible="dialog.visible" :label="dialog.label" :action="dialog.action"
       :count="dialog.count" @submit="(c) => submitDialog(c, selectedRows)" @close="closeDialog" />
 
-    <a-modal v-model:visible="inviteVisible" title="邀请人员" @ok="doInvite">
-      <a-form :model="inviteForm" layout="vertical">
-        <a-form-item label="邮箱"><a-input v-model="inviteForm.email" placeholder="请输入邮箱" /></a-form-item>
-        <a-form-item label="角色">
-          <a-select v-model="inviteForm.role" placeholder="请选择角色">
-            <a-option value="admin">完全控制</a-option>
-            <a-option value="employee">职员</a-option>
-            <a-option value="partial">部分访问权限</a-option>
-          </a-select>
-        </a-form-item>
-      </a-form>
-    </a-modal>
   </div>
 </template>
 
@@ -97,7 +85,6 @@ const { loading, keyword, selectedKeys, selectedRows, filtered, running, progres
   },
 });
 const usage = ref(); const slow = ref(true); const filterMode = ref('all'); const curAction = ref('');
-const inviteVisible = ref(false); const inviteForm = ref({ email: '', role: 'admin' });
 const appStore = useAppStore();
 
 async function refresh() { await load(); usage.value?.reload(); }
@@ -119,6 +106,5 @@ function doRemove() {
     onOk: () => act('移出BM'),
   });
 }
-function doInvite() { if (!inviteForm.value.email) return Message.warning('请输入邮箱'); if (!inviteForm.value.role) return Message.warning('请选择角色'); inviteVisible.value = false; act('邀请人员'); }
 onMounted(refresh);
 </script>

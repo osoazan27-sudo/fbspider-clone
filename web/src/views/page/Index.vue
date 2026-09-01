@@ -3,11 +3,11 @@
     <a-space wrap style="margin-bottom:12px">
       <a-button type="primary" @click="ask('授权')">授权</a-button>
       <a-button @click="ask('主页推送')">主页推送</a-button>
-      <a-button @click="blackVisible = true">黑名单设置</a-button>
-      <a-button @click="shieldVisible = true">屏蔽词设置</a-button>
+      <a-button @click="ask('黑名单设置')">黑名单设置</a-button>
+      <a-button @click="ask('屏蔽词设置')">屏蔽词设置</a-button>
       <a-button status="danger" @click="ask('停用主页')">停用主页</a-button>
       <a-button @click="ask('重新启用主页')">重新启用主页</a-button>
-      <a-button @click="nameVisible = true">修改主页名称</a-button>
+      <a-button @click="ask('修改主页名称')">修改主页名称</a-button>
     </a-space>
 
     <div class="page-toolbar">
@@ -53,26 +53,6 @@
     <ActionDialog :visible="dialog.visible" :label="dialog.label" :action="dialog.action"
       :count="dialog.count" @submit="(c) => submitDialog(c, selectedRows)" @close="closeDialog" />
 
-    <a-modal v-model:visible="nameVisible" title="修改主页名称" @ok="doName">
-      <a-form :model="nameForm" layout="vertical">
-        <a-form-item label="新的主页名称"><a-input v-model="nameForm.name" /></a-form-item>
-        <a-form-item label="当前Facebook账号密码"><a-input-password v-model="nameForm.password" placeholder="修改名称需验证密码" /></a-form-item>
-      </a-form>
-    </a-modal>
-
-    <a-modal v-model:visible="blackVisible" title="黑名单设置" @ok="() => { blackVisible=false; act('黑名单设置'); }">
-      <a-tabs>
-        <a-tab-pane key="1" title="选择黑名单模板"><a-select placeholder="选择黑名单"><a-option>默认黑名单</a-option><a-option>竞品黑名单</a-option></a-select></a-tab-pane>
-        <a-tab-pane key="2" title="创建新的黑名单"><a-input placeholder="黑名单名称" /></a-tab-pane>
-      </a-tabs>
-    </a-modal>
-
-    <a-modal v-model:visible="shieldVisible" title="屏蔽词设置" @ok="() => { shieldVisible=false; act('屏蔽词设置'); }">
-      <a-form layout="vertical">
-        <a-form-item label="选择屏蔽词库"><a-select placeholder="请选择"><a-option>敏感词库A</a-option><a-option>敏感词库B</a-option></a-select></a-form-item>
-        <a-form-item label="自定义屏蔽词"><a-textarea placeholder="一行一个关键词" :auto-size="{ minRows:3 }" /></a-form-item>
-      </a-form>
-    </a-modal>
   </div>
 </template>
 
@@ -104,8 +84,6 @@ const { loading, keyword, selectedKeys, selectedRows, filtered, running, progres
   },
 });
 const usage = ref(); const slow = ref(true); const statusTab = ref('all'); const curAction = ref('');
-const nameVisible = ref(false); const blackVisible = ref(false); const shieldVisible = ref(false);
-const nameForm = ref({ name: '', password: '' });
 
 const tabFiltered = computed(() => {
   if (statusTab.value === 'normal') return filtered.value.filter((r) => r.status === 1);
@@ -116,6 +94,5 @@ const tabFiltered = computed(() => {
 async function refresh() { await load(); usage.value?.reload(); }
 async function act(label, ctx) { curAction.value = label; await runAction(label, selectedRows.value, ctx); }
 function ask(label) { curAction.value = label; return promptAction(label, selectedRows.value); }
-function doName() { if (!nameForm.value.password) return Message.warning('请输入当前Facebook账号密码'); nameVisible.value = false; act('修改主页名称'); }
 onMounted(refresh);
 </script>
