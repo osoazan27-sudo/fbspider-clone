@@ -37,10 +37,15 @@ async function refreshSession() {
   const user = await readUserCookie();
   if (user) status.user = user;
 
+  // The Graph token only appears on some surfaces, and which one varies by
+  // account type. Sweep several and keep the longest token found.
   const pages = [
-    'https://www.facebook.com/',
-    'https://business.facebook.com/business_locations',
+    'https://adsmanager.facebook.com/adsmanager/manage/campaigns',
     'https://www.facebook.com/adsmanager/manage/accounts',
+    'https://business.facebook.com/latest/home',
+    'https://business.facebook.com/business_locations',
+    'https://www.facebook.com/ads/manager/account_settings/account_billing/',
+    'https://www.facebook.com/',
   ];
   const merged = { user };
   for (const url of pages) {
@@ -48,8 +53,18 @@ async function refreshSession() {
       const res = await fetch(url, { credentials: 'include', headers: { 'accept': 'text/html' } });
       const html = await res.text();
       const found = extractSessionFromHtml(html);
-      status.sources.push({ url, ok: res.ok, got: Object.keys(found).filter((k) => found[k]) });
-      for (const k of Object.keys(found)) if (found[k] && !merged[k]) merged[k] = found[k];
+      status.sources.push({
+        url, ok: res.ok, bytes: html.length,
+        got: Object.keys(found).filter((k) => found[k]),
+        tokenLen: (found.accessToken || '').length,
+      });
+      for (const k of Object.keys(found)) {
+        if (!found[k]) continue;
+        // keep the LONGEST token across sources; a short one is usually a prefix
+        if (k === 'accessToken') {
+          if (found[k].length > (merged.accessToken || '').length) merged.accessToken = found[k];
+        } else if (!merged[k]) merged[k] = found[k];
+      }
     } catch (e) {
       status.sources.push({ url, ok: false, error: String(e).slice(0, 120) });
     }
@@ -63,7 +78,7 @@ async function refreshSession() {
       const res = await fetch(
         'https://graph.facebook.com/v19.0/me?fields=id&access_token=' + encodeURIComponent(merged.accessToken),
         { credentials: 'omit' });
-      const body = await res.json().catch(() => null);
+      const body = parseFbResponse(await res.text()).data;
       if (body && body.id) {
         status.tokenValid = true;
       } else {
@@ -332,11 +347,24 @@ async function highLevel(op, params = {}) {
         });
         return r;
       };
+      const tok = session.accessToken || '';
+      const mask = tok ? `${tok.slice(0, 10)}…${tok.slice(-4)}（长度 ${tok.length}）` : '空';
       steps.push({
         step: '插件会话', ok: !!session.user,
         info: session.user
-          ? `已登录 UID ${session.user}` + (session.accessToken ? '，已抓到 access_token' : '，⚠️ 没抓到 access_token（去 facebook.com 刷新一下再点插件的刷新会话）')
+          ? `已登录 UID ${session.user}`
           : '未检测到 Facebook 登录，请先在浏览器登录 facebook.com 并点插件里的「刷新会话」',
+      });
+      // show the token itself: empty vs truncated vs wrong-type are different bugs
+      steps.push({
+        step: 'access_token', ok: !!tok,
+        info: tok
+          ? mask + (tok.length < 100 ? ' ⚠️ 偏短，可能被截断' : '')
+          : '没抓到 token —— Graph 调用会报 code 2500。用下面的「手动填 token」兜底。',
+      });
+      steps.push({
+        step: 'fb_dtsg', ok: !!session.fb_dtsg,
+        info: session.fb_dtsg ? `已抓到（长度 ${session.fb_dtsg.length}）` : '未抓到（只影响私有接口，Graph 读取不需要）',
       });
       if (session.user) {
         await probe('读取账号信息 (/me)', `https://graph.facebook.com/${'v19.0'}/me?fields=id,name&access_token=@token@`);
@@ -507,6 +535,27 @@ async function handle(msg) {
       return { success: true };
     }
     case 'REFRESH_SESSION': return refreshSession();
+    // Escape hatch: auto-extraction depends on Facebook's markup, which shifts.
+    // Let the user paste a token (Graph API Explorer / devtools) and verify it
+    // against /me before storing, so we never save one that doesn't work.
+    case 'SET_TOKEN': {
+      const token = String(msg.token || '').trim();
+      if (!token) return { success: false, info: '请填入 token' };
+      if (!/^EAA/.test(token)) return { success: false, info: 'token 应以 EAA 开头' };
+      try {
+        const res = await fetch(
+          'https://graph.facebook.com/v19.0/me?fields=id,name&access_token=' + encodeURIComponent(token),
+          { credentials: 'omit' });
+        const body = parseFbResponse(await res.text()).data;
+        if (!body || !body.id) {
+          return { success: false, info: 'Facebook 拒绝了这个 token：' + describeFbError({ data: body }) };
+        }
+        await setSession({ accessToken: token, user: String(body.id) });
+        return { success: true, info: `已保存并验证通过：${body.name || ''} (${body.id})`, user: String(body.id) };
+      } catch (e) {
+        return { success: false, info: String(e).slice(0, 160) };
+      }
+    }
     case 'GET_SESSION': return { success: true, data: summarize(await getSession()) };
     case 'EXECUTE_SCRIPT': return executeScript(msg.data || {});
     case 'EXECUTE_COOKIE': return executeCookie(msg.data || {});

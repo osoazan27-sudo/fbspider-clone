@@ -79,4 +79,7 @@ export function bridgeError(r, fallback = '返回数据格式异常（请刷新�
   return fallback;
 }
 
+// raw escape hatch for one-off message types (e.g. SET_TOKEN)
+export const sendRaw = (type, extra = {}, timeout = 30000) => rpc(type, extra, timeout);
+
 export function bridgeReady() { return ready; }

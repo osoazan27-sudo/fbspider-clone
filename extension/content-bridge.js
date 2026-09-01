@@ -19,7 +19,7 @@
     const msg = event.data;
     if (!msg || msg[TAG] !== true || !msg.type || msg.__fromExt) return;
     // only handle request types (ignore our own responses)
-    const REQ = ['PING', 'REFRESH_SESSION', 'GET_SESSION', 'EXECUTE_SCRIPT', 'EXECUTE_COOKIE', 'FB_OP'];
+    const REQ = ['PING', 'REFRESH_SESSION', 'GET_SESSION', 'EXECUTE_SCRIPT', 'EXECUTE_COOKIE', 'FB_OP', 'SET_TOKEN'];
     if (!REQ.includes(msg.type)) return;
 
     const forward = {
@@ -27,6 +27,7 @@
       data: msg.data,
       op: msg.op,
       params: msg.params,
+      token: msg.token,          // SET_TOKEN carries the pasted token here
       uniqueRequestId: msg.uniqueRequestId,
     };
     chrome.runtime.sendMessage(forward, (resp) => {
