@@ -55,6 +55,31 @@ async function refreshSession() {
     }
   }
   if (merged.fb_dtsg && !merged.jazoest) merged.jazoest = computeJazoest(merged.fb_dtsg);
+
+  // Don't report a token as captured until Facebook actually accepts it. A
+  // truncated/stale token looks fine locally but fails every call with code 190.
+  if (merged.accessToken) {
+    try {
+      const res = await fetch(
+        'https://graph.facebook.com/v19.0/me?fields=id&access_token=' + encodeURIComponent(merged.accessToken),
+        { credentials: 'omit' });
+      const body = await res.json().catch(() => null);
+      if (body && body.id) {
+        status.tokenValid = true;
+      } else {
+        status.tokenValid = false;
+        status.tokenError = describeFbError({ data: body });
+        // keep it (some edges still work) but say plainly that it failed
+      }
+    } catch (e) {
+      status.tokenValid = false;
+      status.tokenError = String(e).slice(0, 120);
+    }
+  } else {
+    status.tokenValid = false;
+    status.tokenError = '页面里没找到 access_token';
+  }
+
   const saved = await setSession(merged);
   status.session = summarize(saved);
   return status;

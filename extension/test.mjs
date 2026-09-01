@@ -4,7 +4,7 @@ import {
   stripFbPrefix, parseFbResponse, computeJazoest, fillPlaceholders,
   extractSessionFromHtml, GraphAPI, normalizeAdAccount,
   normalizePixel, normalizeAdPost, normalizeAdAccountInsights,
-  describeFbError, isWriteOk,
+  describeFbError, isWriteOk, extractAccessToken,
 } from './lib/fb.js';
 
 let pass = 0;
@@ -218,6 +218,37 @@ t('describeFbError surfaces what Facebook actually said', () => {
     describeFbError({ data: { error: { message: 'x', error_user_msg: '你没有权限', code: 10 } } }),
     '你没有权限 · code 10');
   assert.equal(describeFbError(null), '无响应');
+});
+
+// --- access-token extraction (the "Malformed access token / code 190" bug) ---
+t('a token containing _ and - is captured whole, not truncated', () => {
+  const tok = 'EAABwzLixnjQBO1_abc-DEF' + 'x'.repeat(30);
+  assert.equal(extractAccessToken(`{"access_token":"${tok}"}`), tok);
+});
+t('the old [A-Za-z0-9] charset would have truncated - regression guard', () => {
+  const tok = 'EAA' + 'A'.repeat(25) + '_tail-part' + 'B'.repeat(10);
+  const got = extractAccessToken('junk ' + tok + ' junk');
+  assert.ok(got.includes('_tail-part'), 'lost everything after the underscore');
+  assert.equal(got, tok);
+});
+t('picks the longest candidate, not a prefix', () => {
+  const long = 'EAA' + 'z'.repeat(60) + '_end';
+  assert.equal(extractAccessToken(`"access_token":"${long.slice(0,30)}" ... ${long}`), long);
+});
+t('handles JSON-escaped bodies', () => {
+  const tok = 'EAA' + 'q'.repeat(40) + '-9';
+  assert.equal(extractAccessToken('{\\"access_token\\":\\"' + tok + '\\"}'), tok);
+});
+t('returns empty when there is no usable token', () => {
+  assert.equal(extractAccessToken('nothing here'), '');
+  assert.equal(extractAccessToken(null), '');
+  assert.equal(extractAccessToken('EAAshort'), '');
+});
+t('extractSessionFromHtml uses the same token rules', () => {
+  const tok = 'EAA' + 'k'.repeat(30) + '_x-y';
+  const out = extractSessionFromHtml(`["DTSGInitialData",[],{"token":"DTSG1"}] "access_token":"${tok}"`);
+  assert.equal(out.accessToken, tok);
+  assert.equal(out.fb_dtsg, 'DTSG1');
 });
 
 console.log(`\n${pass} tests passed.`);

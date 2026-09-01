@@ -48,6 +48,32 @@ export function fillPlaceholders(str, session) {
   return str.replace(/@[A-Za-z_]+@/g, (m) => (m in map ? map[m] : ''));
 }
 
+// Pull the Graph access token out of a page body.
+//
+// Facebook's EAA tokens are base64url-ish: letters, digits, underscore and
+// hyphen. A charset of [A-Za-z0-9] silently truncates at the first _ or -,
+// producing a token that looks plausible but fails with code 190. Tokens are
+// also frequently JSON-escaped in inline scripts, so unescape first.
+export function extractAccessToken(html) {
+  if (typeof html !== 'string') return '';
+  const text = html
+    .replace(/\\u0025/g, '%')
+    .replace(/\\\//g, '/')
+    .replace(/\\"/g, '"');
+  const found = new Set();
+  // prefer an explicitly labelled token, then any bare EAA… run
+  for (const re of [
+    /"(?:access_token|accessToken)"\s*:\s*"(EAA[0-9A-Za-z_-]+)"/g,
+    /access_token=(EAA[0-9A-Za-z_-]+)/g,
+    /\b(EAA[0-9A-Za-z_-]{20,})\b/g,
+  ]) {
+    for (const m of text.matchAll(re)) if (m[1]) found.add(m[1]);
+  }
+  if (!found.size) return '';
+  // longest wins: shorter hits are usually prefixes of the real token
+  return [...found].sort((a, b) => b.length - a.length)[0];
+}
+
 // Extract session tokens from a Facebook HTML/JS page body. Best-effort with
 // multiple fallbacks because Facebook's markup shifts over time.
 export function extractSessionFromHtml(html) {
@@ -72,9 +98,10 @@ export function extractSessionFromHtml(html) {
     /"actorID":"(\d+)"/,
     /\["CurrentUserInitialData",\[\],\{[^}]*"USER_ID":"(\d+)"/,
   ]);
-  // Graph access token (EAA…). Prefer longer matches.
-  const tokens = [...html.matchAll(/EAA[A-Za-z0-9]{20,}/g)].map((m) => m[0]);
-  if (tokens.length) out.accessToken = tokens.sort((a, b) => b.length - a.length)[0];
+  // Graph access token (EAA…). The charset MUST include _ and - : real tokens
+  // contain both, and stopping at the first one yields a truncated token that
+  // Facebook rejects with "Malformed access token (code 190)".
+  out.accessToken = extractAccessToken(html) || '';
   out.spin_r = first([/"__spin_r":(\d+)/, /"spin_r":(\d+)/]);
   out.spin_t = first([/"__spin_t":(\d+)/, /"spin_t":(\d+)/]);
   out.spin_b = first([/"__spin_b":"([^"]+)"/]);
