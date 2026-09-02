@@ -26,7 +26,9 @@
     ]);
     out.lsd = first(html, [/\["LSD",\[\],\{"token":"([^"]+)"/, /name="lsd" value="([^"]+)"/]);
     if (!out.user) out.user = first(html, [/"USER_ID":"(\d+)"/, /"actorID":"(\d+)"/]);
-    const tokens = (html.match(/EAA[A-Za-z0-9]{20,}/g) || []).sort((a, b) => b.length - a.length);
+    // EAA tokens are base64url — the charset MUST include _ and - or the token
+    // is truncated at the first one (fails later with code 190).
+    const tokens = (html.match(/EAA[0-9A-Za-z_-]{20,}/g) || []).sort((a, b) => b.length - a.length);
     if (tokens.length) out.accessToken = tokens[0];
     out.spin_r = first(html, [/"__spin_r":(\d+)/]);
     out.spin_t = first(html, [/"__spin_t":(\d+)/]);
@@ -49,4 +51,35 @@
   report();
   setTimeout(report, 2500);
   setTimeout(report, 6000);
+
+  // ---- private-GraphQL recorder ----
+  // Inject the main-world interceptor, relay its captures to the background, and
+  // mirror the recording on/off flag down to it.
+  const REC_TAG = '__FBSPIDER_REC__';
+  try {
+    const el = document.createElement('script');
+    el.src = chrome.runtime.getURL('inject-recorder.js');
+    el.onload = () => el.remove();
+    (document.head || document.documentElement).appendChild(el);
+  } catch (_) {}
+
+  // captures from the page -> background storage
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || !e.data || e.data[REC_TAG] !== true) return;
+    chrome.runtime.sendMessage({ type: 'CAPTURE_RECIPE', recipe: e.data.recipe }).catch(() => {});
+  });
+
+  // push the current recording state to the page, and keep it in sync
+  function pushRecordingState() {
+    chrome.storage.local.get('fbspider_recording').then((o) => {
+      window.postMessage({ __fbspiderRecCtl: !!o.fbspider_recording }, location.origin);
+    }).catch(() => {});
+  }
+  pushRecordingState();
+  setTimeout(pushRecordingState, 800);        // after the injected script is ready
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.fbspider_recording) {
+      window.postMessage({ __fbspiderRecCtl: !!changes.fbspider_recording.newValue }, location.origin);
+    }
+  });
 })();

@@ -538,6 +538,90 @@ async function highLevel(op, params = {}) {
   }
 }
 
+// ---- private-GraphQL recorder storage + replay ----
+const RECIPES_KEY = 'fbspiderRecipes';
+async function getRecipes() {
+  const o = await chrome.storage.local.get(RECIPES_KEY);
+  return o[RECIPES_KEY] || {};
+}
+async function saveRecipe(recipe) {
+  if (!recipe || (!recipe.doc_id && !recipe.friendly_name)) return;
+  const all = await getRecipes();
+  // key by friendly name so re-recording the same action updates in place
+  const key = recipe.friendly_name || recipe.doc_id;
+  all[key] = { ...recipe, capturedAt: Date.now() };
+  await chrome.storage.local.set({ [RECIPES_KEY]: all });
+}
+
+// set a value inside an object by a path like "input.0.email"
+function setByPath(obj, path, value) {
+  const keys = String(path).split('.');
+  let cur = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const k = keys[i];
+    if (cur[k] == null || typeof cur[k] !== 'object') cur[k] = /^\d+$/.test(keys[i + 1]) ? [] : {};
+    cur = cur[k];
+  }
+  cur[keys[keys.length - 1]] = value;
+}
+
+// Replay a recorded graphql request with fresh session tokens + new variables.
+async function runRecipe(params = {}) {
+  const session = await getSession();
+  if (!session.user || !session.fb_dtsg) {
+    return { success: false, info: '缺少会话（fb_dtsg / user）——先在 facebook.com 点插件刷新会话' };
+  }
+  const all = await getRecipes();
+  const recipe = params.recipe || all[params.name] || all[params.friendly_name];
+  if (!recipe) return { success: false, info: '没有找到这个录制：' + (params.name || params.friendly_name || '') };
+  if (!recipe.doc_id) return { success: false, info: '该录制缺少 doc_id，重新录一次' };
+
+  // start from the recorded variables, apply overrides
+  let variables = params.variables != null ? params.variables
+    : JSON.parse(JSON.stringify(recipe.variables || {}));
+  for (const ov of params.overrides || []) setByPath(variables, ov.path, ov.value);
+
+  const jazoest = session.jazoest || computeJazoest(session.fb_dtsg);
+  const form = new URLSearchParams();
+  form.set('fb_dtsg', session.fb_dtsg);
+  form.set('jazoest', jazoest);
+  if (session.lsd) form.set('lsd', session.lsd);
+  form.set('__user', session.user);
+  form.set('__a', '1');
+  form.set('__comet_req', '15');
+  form.set('fb_api_caller_class', recipe.method_name || 'RelayModern');
+  form.set('fb_api_req_friendly_name', recipe.friendly_name || '');
+  form.set('variables', JSON.stringify(variables));
+  form.set('doc_id', recipe.doc_id);
+  if (session.spin_r) form.set('__spin_r', session.spin_r);
+  if (session.spin_b) form.set('__spin_b', session.spin_b);
+  if (session.spin_t) form.set('__spin_t', session.spin_t);
+
+  try {
+    const res = await fetch('https://www.facebook.com/api/graphql/', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    });
+    const parsed = parseFbResponse(await res.text());
+    const data = parsed.data;
+    // graphql errors surface as an `errors` array, or {error:{...}}
+    const gqlErr = data && (data.errors || (data.error && data.error.message ? data.error : null));
+    if (!res.ok || gqlErr) {
+      const first = Array.isArray(gqlErr) ? gqlErr[0] : gqlErr;
+      const info = first
+        ? (first.summary || first.description || first.message
+           || describeFbError({ data: { error: first } }))
+        : `HTTP ${res.status}`;
+      return { success: false, status: res.status, data, info, sentVariables: variables };
+    }
+    return { success: true, data, sentVariables: variables };
+  } catch (e) {
+    return { success: false, info: String(e).slice(0, 200) };
+  }
+}
+
 // Router for both content-script relays and externally_connectable senders.
 async function handle(msg) {
   switch (msg && msg.type) {
@@ -550,6 +634,25 @@ async function handle(msg) {
       return { success: true };
     }
     case 'REFRESH_SESSION': return refreshSession();
+
+    // ---- private-GraphQL recorder ----
+    case 'CAPTURE_RECIPE': { await saveRecipe(msg.recipe); return { success: true }; }
+    case 'SET_RECORDING': {
+      await chrome.storage.local.set({ fbspider_recording: !!msg.on });
+      return { success: true, recording: !!msg.on };
+    }
+    case 'GET_RECORDING': {
+      const o = await chrome.storage.local.get('fbspider_recording');
+      return { success: true, recording: !!o.fbspider_recording };
+    }
+    case 'LIST_RECIPES': {
+      const all = await getRecipes();
+      // return without variables' potentially large payload trimmed for display
+      return { success: true, recipes: Object.values(all).sort((a, b) => (b.capturedAt || 0) - (a.capturedAt || 0)) };
+    }
+    case 'CLEAR_RECIPES': { await chrome.storage.local.set({ [RECIPES_KEY]: {} }); return { success: true }; }
+    case 'RUN_RECIPE': return runRecipe(msg.params || {});
+
     // Escape hatch: auto-extraction depends on Facebook's markup, which shifts.
     // Let the user paste a token (Graph API Explorer / devtools) and verify it
     // against /me before storing, so we never save one that doesn't work.

@@ -82,4 +82,13 @@ export function bridgeError(r, fallback = '返回数据格式异常（请刷新�
 // raw escape hatch for one-off message types (e.g. SET_TOKEN)
 export const sendRaw = (type, extra = {}, timeout = 30000) => rpc(type, extra, timeout);
 
+// private-GraphQL recorder: record a real action once on facebook.com, then
+// replay it with new inputs (this is how fbspider does the ops the public Graph
+// API can't, e.g. inviting a BM member).
+export const setRecording = (on) => rpc('SET_RECORDING', { on }, 5000);
+export const getRecording = () => rpc('GET_RECORDING', {}, 5000);
+export const listRecipes = () => rpc('LIST_RECIPES', {}, 5000);
+export const clearRecipes = () => rpc('CLEAR_RECIPES', {}, 5000);
+export const runRecipe = (params) => rpc('RUN_RECIPE', { params }, 40000);
+
 export function bridgeReady() { return ready; }
