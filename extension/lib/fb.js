@@ -125,9 +125,12 @@ export const GraphAPI = {
       'amount_spent,balance,spend_cap,funding_source_details,' +
       'business{id,name},created_time'
     ) + '&limit=500&access_token=@token@',
+  // two_factor_type is kept because it's the one integrity signal the API does
+  // return; if a future version rejects it, executeScript self-heals by dropping
+  // it. is_disabled_for_integrity_reasons is NOT requested — FB rejects it.
   businesses: () =>
     `https://graph.facebook.com/${GV}/me/businesses?fields=` +
-    encodeURIComponent('id,name,verification_status,created_time,primary_page') +
+    encodeURIComponent('id,name,verification_status,created_time,primary_page,two_factor_type') +
     '&limit=200&access_token=@token@',
   pages: () =>
     `https://graph.facebook.com/${GV}/me/accounts?fields=` +
@@ -314,7 +317,18 @@ export function describeFbError(resp) {
   if (e.error_user_msg) parts.push(e.error_user_msg);
   else if (e.message) parts.push(e.message);
   if (e.code != null) parts.push('code ' + e.code + (e.error_subcode ? '/' + e.error_subcode : ''));
-  return parts.join(' · ') || '未知错误';
+  let msg = parts.join(' · ') || '未知错误';
+
+  // Append an actionable hint for the handful of blockers users actually hit.
+  const blob = JSON.stringify(e);
+  if (e.error_subcode === 2859009 || /two[- ]?factor|双重验证|two_factor/i.test(blob)) {
+    msg += '  ➜ 该 BM 要求先开启双重验证：business.facebook.com → 商务设置 → 安全中心，开启后再邀请。';
+  } else if (e.code === 100 && /capability|limited functionality/i.test(blob)) {
+    msg += '  ➜ 公开 Graph API 对该操作有应用能力限制，普通网页会话的 token 无权限（原站用的是私有接口）。';
+  } else if (e.code === 200 || e.code === 10) {
+    msg += '  ➜ 权限不足：该会话 token 没有这个操作的权限，或你不是该资产的管理员。';
+  }
+  return msg;
 }
 
 // A Graph write succeeded if FB echoed success:true (or returned an id) and

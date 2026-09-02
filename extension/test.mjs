@@ -211,13 +211,14 @@ t('isWriteOk rejects a Graph error body even on HTTP success', () => {
   assert.equal(isWriteOk(null), false);
 });
 t('describeFbError surfaces what Facebook actually said', () => {
-  assert.equal(
+  // a code-200 error now also carries an actionable hint; the FB text stays first
+  assert.match(
     describeFbError({ data: { error: { message: 'Permissions error', code: 200, error_subcode: 1349004 } } }),
-    'Permissions error · code 200/1349004');
+    /^Permissions error · code 200\/1349004/);
   // the user-facing message wins when present
-  assert.equal(
+  assert.match(
     describeFbError({ data: { error: { message: 'x', error_user_msg: '你没有权限', code: 10 } } }),
-    '你没有权限 · code 10');
+    /^你没有权限 · code 10/);
   assert.equal(describeFbError(null), '无响应');
 });
 
@@ -282,6 +283,28 @@ t('the live field lists no longer request the deprecated fields', () => {
   assert.ok(!/adtrust_dsl|min_daily_budget|,age\b|,owner\b/.test(acc), acc);
   const biz = decodeURIComponent(GraphAPI.businesses());
   assert.ok(!/is_disabled_for_integrity_reasons/.test(biz), biz);
+});
+
+// --- actionable error hints ---
+t('describeFbError appends a 2FA hint for the invite blocker', () => {
+  const msg = describeFbError({ data: { error: {
+    error_user_msg: '若要继续使用账户，你必须启用双重验证。',
+    code: 415, error_subcode: 2859009 } } });
+  assert.match(msg, /双重验证/);
+  assert.match(msg, /商务设置|business\.facebook\.com/);
+});
+t('describeFbError explains the code-100 capability block', () => {
+  const msg = describeFbError({ data: { error: {
+    message: 'Allows the endpoint to be called by apps with the capability, or in new version, with limited functionality',
+    code: 100 } } });
+  assert.match(msg, /应用能力限制|私有接口/);
+});
+t('describeFbError flags a plain permissions error', () => {
+  assert.match(describeFbError({ data: { error: { message: 'x', code: 200 } } }), /权限不足/);
+});
+t('businesses query keeps two_factor_type (self-heal protects it)', () => {
+  assert.ok(decodeURIComponent(GraphAPI.businesses()).includes('two_factor_type'));
+  assert.ok(!decodeURIComponent(GraphAPI.businesses()).includes('is_disabled_for_integrity_reasons'));
 });
 
 console.log(`\n${pass} tests passed.`);

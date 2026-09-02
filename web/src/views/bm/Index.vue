@@ -29,10 +29,15 @@
           <template #cell="{ record }"><a-button type="text" size="mini" @click="toggleFav(record)">
             <icon-star-fill v-if="record.favourite" style="color:#ffb400" /><icon-star v-else /></a-button></template>
         </a-table-column>
-        <a-table-column title="状态" :width="80"><template #cell="{ record }">
-          <a-badge :status="record.status===1?'success':'danger'" :text="record.status===1?'正常':'停用'" /></template></a-table-column>
+        <a-table-column title="状态" :width="90"><template #cell="{ record }">
+          <a-tooltip v-if="record.status===0" content="公开 Graph API 不返回 BM 的封禁/受限状态，这里无法准确判断（需私有接口）">
+            <a-badge status="warning" :text="record.status_label || '未知'" /></a-tooltip>
+          <a-badge v-else :status="record.status===1?'success':'danger'" :text="record.status_label || (record.status===1?'正常':'停用')" />
+        </template></a-table-column>
         <a-table-column title="BM名称" :width="200"><template #cell="{ record }">
           <div><b>{{ record.name }}</b></div><div style="color:var(--color-text-3);font-size:12px">{{ record.id }}</div></template></a-table-column>
+        <a-table-column title="2FA" :width="80"><template #cell="{ record }">
+          <a-tag v-if="record.two_factor==='需2FA'" color="orange">需2FA</a-tag><span v-else>—</span></template></a-table-column>
         <a-table-column title="推送状态" :width="90" data-index="push_status" />
         <a-table-column title="BM类型" :width="80" data-index="bm_type" />
         <a-table-column title="所有者角色" :width="100" data-index="owner_role" />
@@ -73,13 +78,32 @@ const { loading, keyword, selectedKeys, selectedRows, filtered, running, progres
   liveLoad: async () => {
     const r = await getBusinesses();
     if (r && r.success && r.data && Array.isArray(r.data.data)) {
-      return { ok: true, rows: r.data.data.map((b) => ({
-        id: b.id, name: b.name, status: b.is_disabled_for_integrity_reasons ? 2 : 1,
-        bm_type: '企业', owner_role: '管理员', daily_limit: '—',
-        verify_status: b.verification_status === 'verified' ? '已认证' : '未认证',
-        created_time: (b.created_time || '').slice(0, 10), admins: '—', hidden_admins: 0,
-        partners: '—', ad_accounts: '—', quality: '正常', push_status: '—',
-      })) };
+      // real verification states from the API
+      const VMAP = {
+        verified: '已认证', not_verified: '未认证', pending: '审核中',
+        pending_submission: '待提交', pending_need_more_info: '待补充信息',
+        rejected: '认证被拒', revoked: '认证撤销', expired: '认证过期',
+        failed: '认证失败', ineligible: '不符合条件', not_eligible: '不符合条件',
+      };
+      // states that clearly mean the BM is not in good standing
+      const BAD = new Set(['rejected', 'revoked', 'expired', 'failed']);
+      return { ok: true, rows: r.data.data.map((b) => {
+        const vs = b.verification_status || '';
+        const restricted = BAD.has(vs);
+        // The public API does NOT expose BM ban/restriction, so don't claim 正常.
+        // status: 0 = unknown, 2 = clearly restricted (from verification state).
+        return {
+          id: b.id, name: b.name,
+          status: restricted ? 2 : 0,
+          status_label: restricted ? '受限/异常' : '未知',
+          bm_type: '企业', owner_role: '管理员', daily_limit: '—',
+          verify_status: VMAP[vs] || (vs || '未知'),
+          two_factor: (b.two_factor_type && b.two_factor_type !== 'none') ? '需2FA' : '—',
+          created_time: (b.created_time || '').slice(0, 10),
+          admins: '—', hidden_admins: 0, partners: '—', ad_accounts: '—',
+          quality: restricted ? '受限' : '未知', push_status: '—',
+        };
+      }) };
     }
     return { ok: false, info: bridgeError(r) };
   },
