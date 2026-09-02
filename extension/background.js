@@ -576,10 +576,15 @@ async function runRecipe(params = {}) {
   if (!recipe) return { success: false, info: '没有找到这个录制：' + (params.name || params.friendly_name || '') };
   if (!recipe.doc_id) return { success: false, info: '该录制缺少 doc_id，重新录一次' };
 
-  // start from the recorded variables, apply overrides
+  // start from the recorded variables, apply overrides. The special value
+  // '@SESSION_USER@' is replaced with the current session user, so a recipe
+  // recorded by one account still runs correctly as whoever is logged in.
   let variables = params.variables != null ? params.variables
     : JSON.parse(JSON.stringify(recipe.variables || {}));
-  for (const ov of params.overrides || []) setByPath(variables, ov.path, ov.value);
+  for (const ov of params.overrides || []) {
+    const val = ov.value === '@SESSION_USER@' ? session.user : ov.value;
+    setByPath(variables, ov.path, val);
+  }
 
   const jazoest = session.jazoest || computeJazoest(session.fb_dtsg);
   const form = new URLSearchParams();

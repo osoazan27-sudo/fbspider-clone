@@ -6,7 +6,11 @@
 // worse than an honest "not implemented".
 //
 // `fields` declares the inputs the operation needs; ActionDialog renders them.
-import { fbOp } from './fbBridge';
+import { fbOp, runRecipe } from './fbBridge';
+
+// friendly_name of the recorded "Add People to a business" mutation. The user
+// records it once (私有接口录制); we replay it with their email + BM.
+const INVITE_RECIPE = 'BizKitSettingsInvitePeopleModalMutation';
 
 function toResult(r, okMsg) {
   const ok = !!(r && r.success);
@@ -81,15 +85,30 @@ export const ACTIONS = {
     },
     '邀请人员': {
       title: '邀请人员加入 BM',
+      confirm: '通过录制的私有接口发送邀请（权限沿用你录制时选择的那套）。先在「私有接口录制」里录过一次「添加人员」。',
       fields: [
         { key: 'email', label: '邮箱', placeholder: '请输入对方邮箱' },
-        { key: 'role', label: '角色', type: 'select', default: 'EMPLOYEE', options: [
-          { value: 'EMPLOYEE', label: '职员' },
-          { value: 'ADMIN', label: '管理员（完全控制）' },
-        ] },
       ],
-      run: (row, ctx) => fbOp('inviteBusinessUser', { businessId: row.id, email: ctx.email, role: ctx.role })
-        .then((r) => toResult(r, '邀请已发送')),
+      run: async (row, ctx) => {
+        // replay the recorded Add-People mutation with this email + BM; keep the
+        // recorded permission set, clear the BM-specific pre-assigned assets
+        const r = await runRecipe({
+          name: INVITE_RECIPE,
+          // keep the recorded actor_id (it's already your account) so this works
+          // with the v3.1.0 extension without another reload; clear the
+          // BM-specific pre-assigned assets so it invites at the business level.
+          overrides: [
+            { path: 'input.business_emails', value: [ctx.email] },
+            { path: 'input.business_id', value: row.id },
+            { path: 'input.assets', value: [] },
+            { path: 'input.client_mutation_id', value: String(Date.now() % 100000) },
+          ],
+        });
+        if (r && r.info && /没有找到这个录制/.test(r.info)) {
+          return { status: 0, message: '还没录制邀请动作：点右上「私有接口录制」→ 开始录制 → 在 Facebook 商务设置里真实加一次人 → 再回来邀请。' };
+        }
+        return toResult(r, '邀请已发送（私有接口）');
+      },
     },
   },
 
