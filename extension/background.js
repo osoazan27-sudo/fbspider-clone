@@ -625,7 +625,12 @@ async function runRecipe(params = {}) {
 // Router for both content-script relays and externally_connectable senders.
 async function handle(msg) {
   switch (msg && msg.type) {
-    case 'PING': { const s = await getSession(); return { success: true, installed: true, version: '3.0.0', hasSession: !!s.user, user: s.user || null }; }
+    case 'PING': {
+      const s = await getSession();
+      const version = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || '3.1.0';
+      // capabilities the app can feature-detect, so it can tell an old build apart
+      return { success: true, installed: true, version, hasSession: !!s.user, user: s.user || null, features: ['recorder', 'setToken', 'diagnose'] };
+    }
     case 'CAPTURE_TOKENS': {
       const t = msg.tokens || {};
       const clean = {};

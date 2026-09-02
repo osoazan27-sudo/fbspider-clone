@@ -3,10 +3,15 @@
     <a-button size="small" @click="open">私有接口录制</a-button>
 
     <a-modal v-model:visible="visible" title="录制私有接口（doc_id）" :footer="false" width="720px">
-      <a-alert style="margin-bottom:12px">
+      <a-alert v-if="stale" type="error" style="margin-bottom:12px">
+        检测到<b>旧版插件</b>（{{ version || '未知版本' }}，需要 ≥ 3.1.0）。录制功能在最新插件里。
+        请在 chrome://extensions 重新加载最新的 <code>fbspider-extension.zip</code>，重载后重新打开本窗口。
+      </a-alert>
+      <a-alert v-else style="margin-bottom:12px">
         有些操作（如邀请 BM 成员）公开 Graph API 做不了，原站走的是私有 GraphQL。
         录一次你在 Facebook 上真实做的这个操作，插件在<b>本地</b>抓下它的 doc_id 和参数结构
         （不含 cookie，token 也会打码），之后就能用你的会话重放。
+        <span v-if="version" style="color:var(--color-text-3)">（插件版本 {{ version }}）</span>
       </a-alert>
 
       <a-space style="margin-bottom:12px">
@@ -54,7 +59,7 @@
 <script setup>
 import { ref } from 'vue';
 import { Message } from '@arco-design/web-vue';
-import { setRecording, getRecording, listRecipes, clearRecipes, isExtensionInstalled } from '../api/fbBridge';
+import { setRecording, getRecording, listRecipes, clearRecipes, isExtensionInstalled, pingSession } from '../api/fbBridge';
 
 const visible = ref(false);
 const recording = ref(false);
@@ -62,12 +67,19 @@ const busy = ref(false);
 const loading = ref(false);
 const recipes = ref([]);
 const copied = ref(false);
+const version = ref('');
+const stale = ref(false);
 
 function pretty(v) { try { return JSON.stringify(v, null, 2); } catch { return String(v); } }
 
 async function open() {
   if (!(await isExtensionInstalled())) return Message.error('没有检测到插件，请先加载/刷新扩展');
   visible.value = true;
+  // feature-detect the recorder so we can tell an old build apart up front
+  const ping = await pingSession();
+  version.value = (ping && ping.version) || '';
+  stale.value = !(ping && Array.isArray(ping.features) && ping.features.includes('recorder'));
+  if (stale.value) return;
   const r = await getRecording();
   recording.value = !!(r && r.recording);
   refresh();
@@ -76,8 +88,14 @@ async function toggle() {
   busy.value = true;
   try {
     const r = await setRecording(!recording.value);
-    recording.value = !!(r && r.recording);
-    if (recording.value) Message.info('已开始录制，去 Facebook 做一次操作');
+    // an old extension has no SET_RECORDING handler -> the bridge times out
+    if (!r || r.success === false || r.error === 'TIMEOUT') {
+      Message.error('插件没有响应「录制」——你加载的可能是旧版插件。请在 chrome://extensions 重新加载最新的 fbspider-extension.zip（含 inject-recorder.js），加载后这个按钮会立即切换而不是一直转圈。');
+      return;
+    }
+    recording.value = !!r.recording;
+    if (recording.value) Message.info('已开始录制，切到 Facebook 做一次操作');
+    else Message.info('已停止录制');
   } finally { busy.value = false; }
 }
 async function refresh() {
